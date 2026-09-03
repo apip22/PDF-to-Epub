@@ -75,11 +75,22 @@ app.post('/api/upload', upload.single('pdf'), (req, res) => {
     author:      req.body.author      || 'Unknown',
     coverBase64: req.body.coverBase64 || '',
     epubPath:    null,
-    progress:    null,
+    progress:    { phase: 'uploaded', current: 0, total: 0, errors: 0 },
     errors:      []
   };
 
   res.json({ jobId, message: 'Upload successful' });
+});
+
+/**
+ * GET /api/status/:jobId
+ * Return the latest job state so a disconnected browser can recover.
+ */
+app.get('/api/status/:jobId', (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json({ status: job.status, progress: job.progress, errors: job.errors,
+    downloadUrl: job.epubPath ? `/api/download/${req.params.jobId}` : null });
 });
 
 /**
@@ -98,6 +109,11 @@ app.get('/api/process/:jobId', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch (_) {}
+  }, 15000);
+  res.on('close', () => clearInterval(heartbeat));
+
   const send = (data) => {
     try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {}
   };
@@ -109,6 +125,7 @@ app.get('/api/process/:jobId', async (req, res) => {
     send({ phase: 'parsing', message: 'Memulai parsing PDF…' });
 
     const paragraphs = await parsePDF(job.filePath, (current, total) => {
+      job.progress = { phase: 'parsing', current, total, errors: 0 };
       send({ phase: 'parsing', current, total, message: `Parsing halaman ${current}/${total}` });
     });
 
@@ -117,6 +134,7 @@ app.get('/api/process/:jobId', async (req, res) => {
       total: paragraphs.length,
       message: `Berhasil mengekstrak ${paragraphs.length} paragraf`
     });
+    job.progress = { phase: 'parsed', current: paragraphs.length, total: paragraphs.length, errors: 0 };
 
     if (paragraphs.length === 0) {
       send({ phase: 'error', message: 'Tidak ada teks yang ditemukan di PDF.' });
@@ -141,6 +159,7 @@ app.get('/api/process/:jobId', async (req, res) => {
         apiKey:     job.apiKey
       },
       (current, total, errorCount) => {
+        job.progress = { phase: 'translating', current, total, errors: errorCount };
         send({
           phase: 'translating',
           current,
@@ -150,6 +169,7 @@ app.get('/api/process/:jobId', async (req, res) => {
         });
       }
     );
+        job.progress = { phase: 'building', current: paragraphs.length, total: paragraphs.length, errors: 0 };
 
     // ── Phase 3: Build ePub ─────────────────────────────
     send({ phase: 'building', message: 'Merakit file ePub…' });
@@ -163,6 +183,7 @@ app.get('/api/process/:jobId', async (req, res) => {
 
     job.epubPath = epubPath;
     job.status = 'done';
+    job.progress = { phase: 'done', current: paragraphs.length, total: paragraphs.length, errors: 0 };
 
     const stats = fs.statSync(epubPath);
     const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
@@ -178,6 +199,7 @@ app.get('/api/process/:jobId', async (req, res) => {
     console.error('Processing error:', err);
     send({ phase: 'error', message: 'Error: ' + err.message });
     job.status = 'error';
+    job.progress = { phase: 'error', current: 0, total: 0, errors: 1, message: err.message };
   }
 
   res.end();

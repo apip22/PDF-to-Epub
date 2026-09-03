@@ -444,9 +444,43 @@ async function startProcess() {
 
   es.onerror = () => {
     es.close();
-    log('❌ Connection lost.','err');
-    toast('Server connection lost.','err');
+    log('⚠ Live connection interrupted; checking job status…','warn');
+    recoverJobStatus();
   };
+
+  async function recoverJobStatus() {
+    try {
+      const r = await fetch('/api/status/' + S.jobId);
+      const d = await r.json();
+      if (d.status === 'done' && d.downloadUrl) {
+        S.dlUrl = d.downloadUrl;
+        $('pPct').textContent = '100%'; $('pBar').style.width = '100%';
+        log('✅ ePub selesai diproses.','ok');
+        $('rSub').textContent = ($('inTitle').value||'Book')+'.epub';
+        goStep(4);
+        return;
+      }
+      if (d.status === 'error') {
+        log('❌ '+(d.progress?.message || 'Processing failed.'),'err');
+        toast('Processing failed.','err');
+        return;
+      }
+      if (d.progress) updateProgress(d.progress);
+      setTimeout(recoverJobStatus, 3000);
+    } catch (_) {
+      setTimeout(recoverJobStatus, 5000);
+    }
+  }
+
+  function updateProgress(d) {
+    if (d.total) {
+      const p = Math.round((d.current / d.total) * 100);
+      $('pPct').textContent = p+'%'; $('pBar').style.width = p+'%';
+      $('sDone').textContent = d.current; $('sTotal').textContent = d.total;
+      $('sErr').textContent = d.errors || 0;
+    }
+    if (d.phase === 'building') $('pLbl').textContent = 'Building ePub…';
+  }
 }
 
 function fmtTime(s){
