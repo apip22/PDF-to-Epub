@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF → ePub Translator</title>
+<meta name="description" content="Convert and translate PDF books to ePub format using Neural Machine Translation">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06060e;--bg-card:rgba(255,255,255,.04);--bg-glass:rgba(12,12,28,.7);
+  --border:rgba(255,255,255,.07);--border-focus:rgba(139,92,246,.55);
+  --text:#f0f0f5;--text2:rgba(240,240,245,.5);--text3:rgba(240,240,245,.3);
+  --a1:#8b5cf6;--a2:#3b82f6;--a3:#06b6d4;
+  --grad:linear-gradient(135deg,var(--a1),var(--a2),var(--a3));
+  --grad-t:linear-gradient(135deg,#c084fc,#60a5fa,#22d3ee);
+  --ok:#22c55e;--warn:#f59e0b;--err:#ef4444;
+  --r:16px;--rs:10px;--font:'Inter',system-ui,sans-serif;
+}
+html{font-size:16px}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6;overflow-x:hidden}
+
+/* BG */
+.mesh{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(ellipse 80% 60% at 10% 20%,rgba(139,92,246,.10),transparent 60%),
+  radial-gradient(ellipse 60% 50% at 90% 80%,rgba(59,130,246,.08),transparent 55%),
+  radial-gradient(ellipse 50% 40% at 50% 50%,rgba(6,182,212,.05),transparent 50%)}
+.grid{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+  background-size:64px 64px}
+
+/* Layout */
+.app{position:relative;z-index:1;max-width:920px;margin:0 auto;padding:20px 16px 60px}
+header{text-align:center;padding:44px 0 20px}
+header h1{font-size:clamp(1.7rem,5vw,2.5rem);font-weight:800;background:var(--grad-t);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-.02em}
+header p{color:var(--text2);font-size:.88rem;margin-top:6px;font-weight:300}
+
+/* Stepper */
+.stepper{display:flex;align-items:center;justify-content:center;margin:28px auto 36px;max-width:560px}
+.st{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1;position:relative;z-index:1}
+.st-c{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.82rem;background:var(--bg-card);border:2px solid var(--border);color:var(--text3);transition:.35s}
+.st.on .st-c{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 0 24px rgba(139,92,246,.4)}
+.st.ok .st-c{background:var(--ok);border-color:transparent;color:#fff}
+.st-l{font-size:.65rem;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;transition:.3s}
+.st.on .st-l{color:var(--text)}.st.ok .st-l{color:var(--ok)}
+.st-line{flex:1;height:2px;background:var(--border);position:relative;top:-12px;transition:.4s}
+.st-line.fill{background:var(--ok)}
+
+/* Card */
+.card{background:var(--bg-glass);border:1px solid var(--border);border-radius:var(--r);padding:28px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 0 50px rgba(139,92,246,.08);animation:ci .45s ease both}
+@keyframes ci{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.card+.card{margin-top:16px}
+.card-t{font-size:1.1rem;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:9px}
+.sec{display:none}.sec.vis{display:block}
+
+/* Dropzone */
+.dz{border:2px dashed rgba(139,92,246,.3);border-radius:var(--r);padding:52px 20px;text-align:center;cursor:pointer;transition:.3s;position:relative;overflow:hidden}
+.dz::before{content:'';position:absolute;inset:0;background:radial-gradient(circle,rgba(139,92,246,.06),transparent 70%);opacity:0;transition:.3s}
+.dz:hover,.dz.over{border-color:var(--a1);background:rgba(139,92,246,.04)}.dz:hover::before,.dz.over::before{opacity:1}
+.dz-i{font-size:2.8rem;margin-bottom:10px;display:block}
+.dz-t{font-weight:600;font-size:1rem}.dz-s{color:var(--text2);font-size:.8rem;margin-top:4px}
+input[type=file]{display:none}
+
+/* PDF info */
+.pinfo{display:flex;gap:18px;margin-top:16px;flex-wrap:wrap;align-items:flex-start}
+.pthumb{width:110px;min-height:148px;border-radius:var(--rs);overflow:hidden;background:var(--bg-card);border:1px solid var(--border);flex-shrink:0}
+.pthumb canvas{width:100%!important;height:auto!important;display:block}
+.pmeta{flex:1;min-width:180px}
+.pmeta h3{font-size:.95rem;font-weight:600;margin-bottom:8px;word-break:break-all}
+.mrow{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:.82rem}
+.mrow span:first-child{color:var(--text2)}.mrow span:last-child{font-weight:500}
+
+/* Form */
+.fl{display:block;font-size:.72rem;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+select,input[type=text],input[type=password]{width:100%;padding:11px 13px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-family:var(--font);font-size:.87rem;outline:none;transition:.2s;appearance:none;-webkit-appearance:none}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px;cursor:pointer}
+select:focus,input:focus{border-color:var(--a1)}
+select option{background:#1a1a2e;color:#fff}
+.fg{margin-bottom:14px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.api-g{margin-top:10px;display:none}.api-g.show{display:block}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 24px;border:none;border-radius:var(--rs);font-family:var(--font);font-size:.87rem;font-weight:600;cursor:pointer;transition:.25s;position:relative;overflow:hidden}
+.btn::after{content:'';position:absolute;inset:0;background:linear-gradient(rgba(255,255,255,.1),transparent);opacity:0;transition:.25s}
+.btn:hover::after{opacity:1}.btn:active{transform:scale(.97)}
+.btn-p{background:var(--grad);color:#fff;box-shadow:0 4px 18px rgba(139,92,246,.3)}
+.btn-p:hover{box-shadow:0 6px 28px rgba(139,92,246,.45)}.btn-p:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}
+.btn-s{background:var(--bg-card);color:var(--text);border:1px solid var(--border)}
+.btn-ok{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 18px rgba(34,197,94,.3)}
+.brow{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+
+/* Progress */
+.pcon{margin:18px 0}.phdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;font-size:.83rem}
+.phdr .pct{font-weight:700;color:var(--a1)}
+.ptrk{height:7px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden}
+.pfill{height:100%;border-radius:99px;background:var(--grad);width:0%;transition:width .35s ease}
+.pstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px}
+.sbox{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--rs);padding:12px;text-align:center}
+.sbox .sv{font-size:1.3rem;font-weight:800;background:var(--grad-t);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sbox .sl{font-size:.65rem;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:.04em}
+
+/* Log */
+.logbox{background:rgba(0,0,0,.35);border:1px solid var(--border);border-radius:var(--rs);padding:12px;max-height:200px;overflow-y:auto;font-family:'Cascadia Code','Fira Code',monospace;font-size:.74rem;line-height:1.7;color:var(--text2);margin-top:14px}
+.logbox::-webkit-scrollbar{width:4px}.logbox::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:99px}
+.ll{display:block}.ll.ok{color:var(--ok)}.ll.err{color:var(--err)}.ll.wrn{color:var(--warn)}
+.ll .ts{color:var(--text3);margin-right:5px}
+
+/* Summary badge */
+.sbadge{margin-top:14px;padding:14px;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.15);border-radius:var(--rs);font-size:.8rem;color:var(--text2)}
+.sbadge strong{color:var(--a1)}
+
+/* Result */
+.rcard{text-align:center;padding:44px 20px}
+.r-icon{font-size:3.5rem;margin-bottom:14px;display:block}
+.r-title{font-size:1.4rem;font-weight:800;background:var(--grad-t);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px}
+.r-sub{color:var(--text2);font-size:.85rem;margin-bottom:24px}
+.r-acts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+/* Spinner */
+.spin{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:sp .6s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* Toast */
+.toasts{position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:7px}
+.toast{padding:12px 18px;border-radius:var(--rs);font-size:.82rem;font-weight:500;backdrop-filter:blur(14px);border:1px solid;animation:ti .3s ease;max-width:360px}
+@keyframes ti{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
+.toast.inf{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.3);color:#93c5fd}
+.toast.ok{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.3);color:#86efac}
+.toast.err{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.3);color:#fca5a5}
+
+@media(max-width:600px){
+  .app{padding:10px 10px 36px}header{padding:24px 0 12px}.card{padding:18px 14px}
+  .st-c{width:30px;height:30px;font-size:.7rem}.st-l{font-size:.55rem}
+  .pinfo{flex-direction:column;align-items:center}.pthumb{width:90px}
+  .btn{padding:10px 18px;font-size:.8rem}.fgrid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="mesh"></div>
+<div class="grid"></div>
+<div class="toasts" id="toasts"></div>
+
+<div class="app">
+  <header>
+    <h1>📖 PDF → ePub Translator</h1>
+    <p>Neural Machine Translation · Y-Axis Parser · OEBPS ePub 3.0</p>
+  </header>
+
+  <!-- STEPPER -->
+  <div class="stepper" id="stepper">
+    <div class="st on" data-s="1"><div class="st-c">1</div><div class="st-l">Upload</div></div>
+    <div class="st-line" id="ln12"></div>
+    <div class="st" data-s="2"><div class="st-c">2</div><div class="st-l">Configure</div></div>
+    <div class="st-line" id="ln23"></div>
+    <div class="st" data-s="3"><div class="st-c">3</div><div class="st-l">Translate</div></div>
+    <div class="st-line" id="ln34"></div>
+    <div class="st" data-s="4"><div class="st-c">4</div><div class="st-l">Download</div></div>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="sec vis" id="s1">
+    <div class="card">
+      <div class="card-t">📄 Upload PDF</div>
+      <div class="dz" id="dz">
+        <span class="dz-i">⬆️</span>
+        <div class="dz-t">Drag &amp; Drop PDF here</div>
+        <div class="dz-s">or click to browse · Max 100 MB</div>
+      </div>
+      <input type="file" id="fi" accept="application/pdf">
+      <div id="piw" style="display:none">
+        <div class="pinfo">
+          <div class="pthumb" id="pth"></div>
+          <div class="pmeta" id="pme"></div>
+        </div>
+        <div class="brow">
+          <button class="btn btn-p" id="bNext1">Continue to Settings →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="sec" id="s2">
+    <div class="card">
+      <div class="card-t">🌐 Translation Settings</div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Source Language</label><select id="srcL"></select></div>
+        <div class="fg"><label class="fl">Target Language</label><select id="tgtL"></select></div>
+      </div>
+      <div class="fg"><label class="fl">Translation Engine</label>
+        <select id="prov">
+          <option value="google_free">Google Translate (Free · No API Key)</option>
+          <option value="google_cloud">Google Cloud Translation API</option>
+          <option value="deepl">DeepL API</option>
+        </select>
+      </div>
+      <div class="api-g" id="apiG">
+        <div class="fg"><label class="fl">API Key</label><input type="password" id="apiK" placeholder="Paste your API key"></div>
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">ePub Title</label><input type="text" id="inTitle" placeholder="My Book"></div>
+        <div class="fg"><label class="fl">Author</label><input type="text" id="inAuthor" value="Unknown" placeholder="Author name"></div>
+      </div>
+      <div class="brow">
+        <button class="btn btn-s" id="bBack2">← Back</button>
+        <button class="btn btn-p" id="bStart">🚀 Start Translation</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="sec" id="s3">
+    <div class="card">
+      <div class="card-t">⚡ Processing</div>
+      <div class="pcon">
+        <div class="phdr"><span id="pLbl">Initializing…</span><span class="pct" id="pPct">0%</span></div>
+        <div class="ptrk"><div class="pfill" id="pBar"></div></div>
+      </div>
+      <div class="pstats">
+        <div class="sbox"><div class="sv" id="sDone">0</div><div class="sl">Done</div></div>
+        <div class="sbox"><div class="sv" id="sTotal">0</div><div class="sl">Total</div></div>
+        <div class="sbox"><div class="sv" id="sErr">0</div><div class="sl">Errors</div></div>
+        <div class="sbox"><div class="sv" id="sEta">--</div><div class="sl">ETA</div></div>
+      </div>
+      <div class="logbox" id="log"></div>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="sec" id="s4">
+    <div class="card rcard">
+      <span class="r-icon">✅</span>
+      <div class="r-title">Conversion Complete!</div>
+      <div class="r-sub" id="rSub">Your ePub is ready.</div>
+      <div class="r-acts">
+        <button class="btn btn-ok" id="bDl">⬇️ Download ePub</button>
+        <button class="btn btn-s" id="bReset">🔄 Convert Another</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+ *  PDF → ePub Translator  ·  Frontend Controller
+ *  - PDF.js for cover rendering (client-side)
+ *  - Server-side: parsing + translation + ePub build via SSE
+ * ================================================================ */
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ── State ──────────────────────────────────────────── */
+const S = { file: null, pdfDoc: null, coverB64: '', jobId: '', dlUrl: '' };
+const $ = id => document.getElementById(id);
+
+/* ── Toast ──────────────────────────────────────────── */
+function toast(msg, t='inf') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + t; el.textContent = msg;
+  $('toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 4500);
+}
+
+/* ── Stepper ────────────────────────────────────────── */
+function goStep(n) {
+  document.querySelectorAll('.st').forEach(el => {
+    const s = +el.dataset.s;
+    el.classList.remove('on','ok');
+    if (s < n) el.classList.add('ok');
+    else if (s === n) el.classList.add('on');
+  });
+  [['ln12',1],['ln23',2],['ln34',3]].forEach(([id,v]) => {
+    $(id).classList.toggle('fill', v < n);
+  });
+  for (let i = 1; i <= 4; i++) $('s'+i).classList.toggle('vis', i === n);
+}
+
+/* ── Populate languages ─────────────────────────────── */
+async function loadLangs() {
+  try {
+    const r = await fetch('/api/languages');
+    const langs = await r.json();
+    ['srcL','tgtL'].forEach(id => {
+      const sel = $(id), cur = sel.value;
+      sel.innerHTML = '';
+      langs.forEach(l => {
+        const o = document.createElement('option');
+        o.value = l.code; o.textContent = l.name; sel.appendChild(o);
+      });
+      sel.value = cur || (id === 'srcL' ? 'auto' : 'id');
+    });
+  } catch(e) { console.warn('Could not load languages:', e); }
+}
+loadLangs();
+
+/* ── STEP 1: Upload ─────────────────────────────────── */
+const dz = $('dz');
+dz.onclick = () => $('fi').click();
+dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
+dz.ondragleave = () => dz.classList.remove('over');
+dz.ondrop = e => { e.preventDefault(); dz.classList.remove('over'); if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); };
+$('fi').onchange = e => { if(e.target.files.length) handleFile(e.target.files[0]); };
+
+async function handleFile(file) {
+  if (file.type !== 'application/pdf') return toast('Please select a PDF file.','err');
+  if (file.size > 100*1024*1024) return toast('File exceeds 100 MB.','err');
+  S.file = file;
+  const ab = await file.arrayBuffer();
+  S.pdfDoc = await pdfjsLib.getDocument({data:ab}).promise;
+  await renderCover();
+  $('piw').style.display = 'block';
+  $('pme').innerHTML = `
+    <h3>${file.name}</h3>
+    <div class="mrow"><span>Pages</span><span>${S.pdfDoc.numPages}</span></div>
+    <div class="mrow"><span>Size</span><span>${(file.size/1048576).toFixed(2)} MB</span></div>`;
+  $('inTitle').value = file.name.replace(/\.pdf$/i,'');
+  toast('PDF loaded — '+S.pdfDoc.numPages+' pages','ok');
+}
+
+async function renderCover() {
+  const page = await S.pdfDoc.getPage(1);
+  const vp = page.getViewport({scale:2});
+  const c = document.createElement('canvas');
+  c.width = vp.width; c.height = vp.height;
+  await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+  S.coverB64 = c.toDataURL('image/jpeg',.9).split(',')[1];
+  const p = document.createElement('canvas');
+  p.width=220; p.height=Math.round(220*vp.height/vp.width);
+  p.getContext('2d').drawImage(c,0,0,p.width,p.height);
+  $('pth').innerHTML=''; $('pth').appendChild(p);
+}
+
+$('bNext1').onclick = () => goStep(2);
+
+/* ── STEP 2: Config ─────────────────────────────────── */
+$('prov').onchange = () => $('apiG').classList.toggle('show', $('prov').value!=='google_free');
+$('bBack2').onclick = () => goStep(1);
+$('bStart').onclick = startProcess;
+
+/* ── STEP 3: Process (upload → SSE stream) ──────────── */
+async function startProcess() {
+  if (!S.file) return toast('No PDF loaded.','err');
+  const tgtL = $('tgtL').value;
+  if (tgtL === 'auto') return toast('Select a target language.','err');
+  if ($('prov').value !== 'google_free' && !$('apiK').value) return toast('API key required.','err');
+
+  goStep(3);
+  logClear();
+  log('📤 Uploading PDF to server…');
+
+  // 1. Upload
+  const fd = new FormData();
+  fd.append('pdf', S.file);
+  fd.append('sourceLang', $('srcL').value);
+  fd.append('targetLang', tgtL);
+  fd.append('provider', $('prov').value);
+  fd.append('apiKey', $('apiK').value);
+  fd.append('title', $('inTitle').value || 'Book');
+  fd.append('author', $('inAuthor').value || 'Unknown');
+  fd.append('coverBase64', S.coverB64);
+
+  let uploadRes;
+  try {
+    const r = await fetch('/api/upload', { method:'POST', body:fd });
+    uploadRes = await r.json();
+    if (!uploadRes.jobId) throw new Error(uploadRes.error || 'Upload failed');
+  } catch(e) {
+    log('❌ Upload failed: '+e.message,'err');
+    toast('Upload failed.','err');
+    return;
+  }
+
+  S.jobId = uploadRes.jobId;
+  log('✔ Upload successful. Starting processing…','ok');
+
+  // 2. SSE stream
+  const t0 = Date.now();
+  const es = new EventSource('/api/process/' + S.jobId);
+
+  es.onmessage = (ev) => {
+    const d = JSON.parse(ev.data);
+
+    switch(d.phase) {
+      case 'parsing':
+        $('pLbl').textContent = d.message || 'Parsing…';
+        if (d.total) {
+          const p = Math.round((d.current/d.total)*100);
+          $('pPct').textContent = p+'%'; $('pBar').style.width = p+'%';
+        }
+        break;
+
+      case 'parsed':
+        $('sTotal').textContent = d.total;
+        log('✔ '+d.message,'ok');
+        break;
+
+      case 'translating':
+        $('pLbl').textContent = d.message || 'Translating…';
+        if (d.total) {
+          const p = Math.round((d.current/d.total)*100);
+          $('pPct').textContent = p+'%'; $('pBar').style.width = p+'%';
+          $('sDone').textContent = d.current;
+          $('sTotal').textContent = d.total;
+          $('sErr').textContent = d.errors || 0;
+          // ETA
+          const elapsed = (Date.now()-t0)/1000;
+          const rate = d.current/elapsed;
+          const rem = rate>0 ? (d.total-d.current)/rate : 0;
+          $('sEta').textContent = fmtTime(rem);
+        }
+        // Log every 50 paragraphs
+        if (d.current && d.current % 50 === 0) log(`📝 ${d.current}/${d.total} translated`);
+        break;
+
+      case 'building':
+        log('📦 '+d.message);
+        $('pLbl').textContent = d.message;
+        $('pPct').textContent = '99%'; $('pBar').style.width = '99%';
+        break;
+
+      case 'done':
+        es.close();
+        S.dlUrl = d.downloadUrl;
+        $('pPct').textContent = '100%'; $('pBar').style.width = '100%';
+        log('✅ '+d.message,'ok');
+        toast('ePub ready!','ok');
+        $('rSub').textContent = ($('inTitle').value||'Book')+'.epub — '+d.sizeMB+' MB';
+        goStep(4);
+        break;
+
+      case 'error':
+        es.close();
+        log('❌ '+d.message,'err');
+        toast('Error: '+d.message,'err');
+        break;
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
+    log('❌ Connection lost.','err');
+    toast('Server connection lost.','err');
+  };
+}
+
+function fmtTime(s){
+  if(!s||s<=0)return '--';
+  if(s<60)return Math.round(s)+'s';
+  if(s<3600)return Math.floor(s/60)+'m '+Math.round(s%60)+'s';
+  return Math.floor(s/3600)+'h '+Math.round((s%3600)/60)+'m';
+}
+
+/* ── Log ────────────────────────────────────────────── */
+function log(msg,cls=''){
+  const b=$('log'),l=document.createElement('span');
+  l.className='ll '+(cls||'');
+  l.innerHTML=`<span class="ts">[${new Date().toLocaleTimeString()}]</span> ${esc(msg)}`;
+  b.appendChild(l);b.scrollTop=b.scrollHeight;
+}
+function logClear(){$('log').innerHTML='';}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+/* ── STEP 4: Download ──────────────────────────────── */
+$('bDl').onclick = () => {
+  if (!S.dlUrl) return;
+  const a = document.createElement('a');
+  a.href = S.dlUrl; a.download = ($('inTitle').value||'book')+'.epub';
+  a.click();
+  toast('Download started!','ok');
+};
+
+$('bReset').onclick = () => {
+  S.file=null;S.pdfDoc=null;S.coverB64='';S.jobId='';S.dlUrl='';
+  $('piw').style.display='none';$('pth').innerHTML='';$('fi').value='';
+  $('pPct').textContent='0%';$('pBar').style.width='0%';
+  $('sDone').textContent='0';$('sTotal').textContent='0';$('sErr').textContent='0';$('sEta').textContent='--';
+  logClear();
+  goStep(1);
+};
+</script>
+</body>
+</html>

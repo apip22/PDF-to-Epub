@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF → ePub Translator</title>
+
+<!-- Google Font -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+<!-- PDF.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<!-- JSZip -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<style>
+/* ===================== RESET & ROOT ===================== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-primary:#06060e;
+  --bg-card:rgba(255,255,255,.04);
+  --bg-card-hover:rgba(255,255,255,.07);
+  --bg-glass:rgba(15,15,30,.65);
+  --border:rgba(255,255,255,.08);
+  --border-active:rgba(139,92,246,.5);
+  --text-primary:#f0f0f5;
+  --text-secondary:rgba(240,240,245,.55);
+  --text-muted:rgba(240,240,245,.35);
+  --accent-1:#8b5cf6;
+  --accent-2:#3b82f6;
+  --accent-3:#06b6d4;
+  --gradient:linear-gradient(135deg,var(--accent-1),var(--accent-2),var(--accent-3));
+  --gradient-text:linear-gradient(135deg,#c084fc,#60a5fa,#22d3ee);
+  --success:#22c55e;
+  --warning:#f59e0b;
+  --error:#ef4444;
+  --radius:16px;
+  --radius-sm:10px;
+  --radius-xs:6px;
+  --font:'Inter',system-ui,-apple-system,sans-serif;
+  --shadow-glow:0 0 60px rgba(139,92,246,.12),0 0 120px rgba(59,130,246,.06);
+}
+html{font-size:16px;scroll-behavior:smooth}
+body{
+  font-family:var(--font);
+  background:var(--bg-primary);
+  color:var(--text-primary);
+  min-height:100vh;
+  overflow-x:hidden;
+  line-height:1.6;
+}
+
+/* ===================== ANIMATED BG ===================== */
+.bg-mesh{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 20%, rgba(139,92,246,.10) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 80%, rgba(59,130,246,.08) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(6,182,212,.05) 0%, transparent 50%);
+}
+.bg-grid{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+  background-size:60px 60px;
+}
+
+/* ===================== LAYOUT ===================== */
+.app{position:relative;z-index:1;max-width:960px;margin:0 auto;padding:24px 20px 60px}
+header{text-align:center;padding:48px 0 24px}
+header h1{
+  font-size:clamp(1.8rem,5vw,2.6rem);
+  font-weight:800;
+  background:var(--gradient-text);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;letter-spacing:-.02em;
+}
+header p{color:var(--text-secondary);font-size:.95rem;margin-top:8px;font-weight:300}
+
+/* ===================== STEPPER ===================== */
+.stepper{
+  display:flex;align-items:center;justify-content:center;
+  gap:0;margin:32px auto 40px;max-width:600px;position:relative;
+}
+.step-item{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  flex:1;position:relative;z-index:1;cursor:default;
+}
+.step-circle{
+  width:40px;height:40px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:.85rem;
+  background:var(--bg-card);border:2px solid var(--border);
+  color:var(--text-muted);
+  transition:all .4s cubic-bezier(.4,0,.2,1);
+}
+.step-item.active .step-circle{
+  background:var(--gradient);border-color:transparent;
+  color:#fff;box-shadow:0 0 20px rgba(139,92,246,.4);
+}
+.step-item.done .step-circle{
+  background:var(--success);border-color:transparent;color:#fff;
+}
+.step-label{
+  font-size:.7rem;font-weight:500;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:.06em;
+  transition:color .3s;
+}
+.step-item.active .step-label{color:var(--text-primary)}
+.step-item.done .step-label{color:var(--success)}
+.step-line{
+  flex:1;height:2px;background:var(--border);
+  position:relative;top:-12px;z-index:0;
+  transition:background .4s;
+}
+.step-line.filled{background:var(--success)}
+
+/* ===================== CARDS ===================== */
+.card{
+  background:var(--bg-glass);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:32px;
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  box-shadow:var(--shadow-glow);
+  transition:border-color .3s;
+  animation:cardIn .5s cubic-bezier(.4,0,.2,1) both;
+}
+@keyframes cardIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.card + .card{margin-top:20px}
+.card-title{
+  font-size:1.15rem;font-weight:700;margin-bottom:16px;
+  display:flex;align-items:center;gap:10px;
+}
+.card-title .icon{font-size:1.3rem}
+.section{display:none}
+.section.visible{display:block}
+
+/* ===================== DROP ZONE ===================== */
+.dropzone{
+  border:2px dashed rgba(139,92,246,.3);
+  border-radius:var(--radius);
+  padding:56px 24px;text-align:center;
+  cursor:pointer;
+  transition:all .3s;position:relative;overflow:hidden;
+}
+.dropzone::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(circle at center,rgba(139,92,246,.06) 0%,transparent 70%);
+  opacity:0;transition:opacity .3s;
+}
+.dropzone:hover,.dropzone.dragover{
+  border-color:var(--accent-1);background:rgba(139,92,246,.05);
+}
+.dropzone:hover::before,.dropzone.dragover::before{opacity:1}
+.dropzone .dz-icon{
+  font-size:3rem;margin-bottom:12px;display:block;
+  background:var(--gradient-text);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.dropzone .dz-text{font-weight:600;font-size:1.05rem}
+.dropzone .dz-sub{color:var(--text-secondary);font-size:.82rem;margin-top:6px}
+input[type=file]{display:none}
+
+/* ===================== PDF INFO ===================== */
+.pdf-info{
+  display:flex;gap:20px;align-items:flex-start;
+  margin-top:16px;flex-wrap:wrap;
+}
+.pdf-thumb{
+  width:120px;min-height:160px;border-radius:var(--radius-sm);
+  overflow:hidden;background:var(--bg-card);
+  border:1px solid var(--border);flex-shrink:0;
+}
+.pdf-thumb img{width:100%;height:auto;display:block}
+.pdf-thumb canvas{width:100%!important;height:auto!important;display:block}
+.pdf-meta{flex:1;min-width:200px}
+.pdf-meta h3{font-size:1rem;font-weight:600;margin-bottom:8px;word-break:break-all}
+.pdf-meta .meta-row{
+  display:flex;justify-content:space-between;
+  padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);
+  font-size:.85rem;
+}
+.pdf-meta .meta-row span:first-child{color:var(--text-secondary)}
+.pdf-meta .meta-row span:last-child{font-weight:500}
+
+/* ===================== FORM ELEMENTS ===================== */
+label.field-label{
+  display:block;font-size:.78rem;font-weight:600;
+  color:var(--text-secondary);text-transform:uppercase;
+  letter-spacing:.05em;margin-bottom:6px;
+}
+select,input[type=text],input[type=password]{
+  width:100%;padding:12px 14px;
+  background:rgba(255,255,255,.04);
+  border:1px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text-primary);font-family:var(--font);font-size:.9rem;
+  outline:none;transition:border-color .2s;
+  appearance:none;-webkit-appearance:none;
+}
+select{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 14px center;
+  padding-right:36px;cursor:pointer;
+}
+select:focus,input:focus{border-color:var(--accent-1)}
+select option{background:#1a1a2e;color:#fff}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:560px){.form-grid{grid-template-columns:1fr}}
+.form-group{margin-bottom:16px}
+.api-key-group{margin-top:12px;display:none}
+.api-key-group.show{display:block}
+
+/* ===================== BUTTONS ===================== */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:13px 28px;border:none;border-radius:var(--radius-sm);
+  font-family:var(--font);font-size:.9rem;font-weight:600;
+  cursor:pointer;transition:all .25s;position:relative;overflow:hidden;
+}
+.btn::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(rgba(255,255,255,.1),transparent);
+  opacity:0;transition:opacity .25s;
+}
+.btn:hover::after{opacity:1}
+.btn:active{transform:scale(.97)}
+.btn-primary{
+  background:var(--gradient);color:#fff;
+  box-shadow:0 4px 20px rgba(139,92,246,.3);
+}
+.btn-primary:hover{box-shadow:0 6px 30px rgba(139,92,246,.45)}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
+.btn-secondary{
+  background:var(--bg-card);color:var(--text-primary);
+  border:1px solid var(--border);
+}
+.btn-success{
+  background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;
+  box-shadow:0 4px 20px rgba(34,197,94,.3);
+}
+.btn-row{display:flex;gap:12px;margin-top:24px;flex-wrap:wrap}
+
+/* ===================== PROGRESS ===================== */
+.progress-container{margin:20px 0}
+.progress-header{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:8px;font-size:.85rem;
+}
+.progress-header .pct{font-weight:700;color:var(--accent-1)}
+.progress-bar-track{
+  height:8px;background:rgba(255,255,255,.06);
+  border-radius:99px;overflow:hidden;
+}
+.progress-bar-fill{
+  height:100%;border-radius:99px;
+  background:var(--gradient);
+  width:0%;transition:width .4s cubic-bezier(.4,0,.2,1);
+}
+.progress-stats{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:12px;margin-top:16px;
+}
+.stat-box{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:14px;text-align:center;
+}
+.stat-box .stat-val{
+  font-size:1.4rem;font-weight:800;
+  background:var(--gradient-text);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.stat-box .stat-lbl{font-size:.7rem;color:var(--text-secondary);margin-top:2px;text-transform:uppercase;letter-spacing:.04em}
+
+/* ===================== LOG ===================== */
+.log-box{
+  background:rgba(0,0,0,.3);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:14px;
+  max-height:220px;overflow-y:auto;
+  font-family:'Fira Code','Cascadia Code',monospace;font-size:.78rem;
+  line-height:1.7;color:var(--text-secondary);
+  margin-top:16px;
+}
+.log-box::-webkit-scrollbar{width:5px}
+.log-box::-webkit-scrollbar-track{background:transparent}
+.log-box::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:99px}
+.log-line{display:block}
+.log-line.success{color:var(--success)}
+.log-line.error{color:var(--error)}
+.log-line.warn{color:var(--warning)}
+.log-line .ts{color:var(--text-muted);margin-right:6px}
+
+/* ===================== RESULT ===================== */
+.result-card{text-align:center;padding:48px 24px}
+.result-icon{font-size:4rem;margin-bottom:16px;display:block}
+.result-title{
+  font-size:1.5rem;font-weight:800;
+  background:var(--gradient-text);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;margin-bottom:8px;
+}
+.result-sub{color:var(--text-secondary);font-size:.9rem;margin-bottom:28px}
+.result-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+/* ===================== SPINNER ===================== */
+.spinner{
+  display:inline-block;width:18px;height:18px;
+  border:2px solid rgba(255,255,255,.2);
+  border-top-color:#fff;border-radius:50%;
+  animation:spin .6s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===================== TOAST ===================== */
+.toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{
+  padding:14px 20px;border-radius:var(--radius-sm);
+  font-size:.85rem;font-weight:500;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid;
+  animation:toastIn .3s ease-out;
+  max-width:380px;
+}
+@keyframes toastIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}
+.toast.info{background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.3);color:#93c5fd}
+.toast.success{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.3);color:#86efac}
+.toast.error{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.3);color:#fca5a5}
+
+/* ===================== RESPONSIVE ===================== */
+@media(max-width:640px){
+  .app{padding:12px 12px 40px}
+  header{padding:28px 0 16px}
+  .card{padding:20px 16px}
+  .stepper{gap:0}
+  .step-circle{width:32px;height:32px;font-size:.75rem}
+  .step-label{font-size:.6rem}
+  .pdf-info{flex-direction:column;align-items:center}
+  .pdf-thumb{width:100px}
+  .btn{padding:11px 20px;font-size:.82rem}
+}
+</style>
+</head>
+
+<body>
+<div class="bg-mesh"></div>
+<div class="bg-grid"></div>
+<div class="toast-container" id="toasts"></div>
+
+<div class="app">
+  <!-- ═══ HEADER ═══ -->
+  <header>
+    <h1>📖 PDF → ePub Translator</h1>
+    <p>Neural Machine Translation · Y-Axis Precision Parser · OEBPS ePub Builder</p>
+  </header>
+
+  <!-- ═══ STEPPER ═══ -->
+  <div class="stepper" id="stepper">
+    <div class="step-item active" data-step="1">
+      <div class="step-circle">1</div>
+      <div class="step-label">Upload</div>
+    </div>
+    <div class="step-line" id="line-1-2"></div>
+    <div class="step-item" data-step="2">
+      <div class="step-circle">2</div>
+      <div class="step-label">Configure</div>
+    </div>
+    <div class="step-line" id="line-2-3"></div>
+    <div class="step-item" data-step="3">
+      <div class="step-circle">3</div>
+      <div class="step-label">Translate</div>
+    </div>
+    <div class="step-line" id="line-3-4"></div>
+    <div class="step-item" data-step="4">
+      <div class="step-circle">4</div>
+      <div class="step-label">Download</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 1 · UPLOAD ═══════════ -->
+  <div class="section visible" id="sec-upload">
+    <div class="card">
+      <div class="card-title"><span class="icon">📄</span> Upload PDF</div>
+
+      <div class="dropzone" id="dropzone">
+        <span class="dz-icon">⬆️</span>
+        <div class="dz-text">Drag & Drop PDF here</div>
+        <div class="dz-sub">or click to browse · Max 50 MB</div>
+      </div>
+      <input type="file" id="fileInput" accept="application/pdf">
+
+      <div id="pdfInfoWrap" style="display:none">
+        <div class="pdf-info">
+          <div class="pdf-thumb" id="pdfThumb"></div>
+          <div class="pdf-meta" id="pdfMeta"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnParse">⚙️ Parse PDF &amp; Extract Text</button>
+        </div>
+      </div>
+
+      <!-- parsing progress -->
+      <div id="parseProgress" style="display:none;margin-top:20px">
+        <div class="progress-container">
+          <div class="progress-header">
+            <span id="parseLabel">Parsing pages…</span>
+            <span class="pct" id="parsePct">0%</span>
+          </div>
+          <div class="progress-bar-track"><div class="progress-bar-fill" id="parseBar"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 2 · CONFIGURE ═══════════ -->
+  <div class="section" id="sec-config">
+    <div class="card">
+      <div class="card-title"><span class="icon">🌐</span> Translation Settings</div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="field-label">Source Language</label>
+          <select id="selSource"><option value="auto">Auto Detect</option></select>
+        </div>
+        <div class="form-group">
+          <label class="field-label">Target Language</label>
+          <select id="selTarget"><option value="id">Bahasa Indonesia</option></select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="field-label">Translation Engine</label>
+        <select id="selProvider">
+          <option value="google_free">Google Translate (Built-in · Free)</option>
+          <option value="google_cloud">Google Cloud Translation API</option>
+          <option value="deepl">DeepL API</option>
+        </select>
+      </div>
+
+      <div class="api-key-group" id="apiKeyGroup">
+        <div class="form-group">
+          <label class="field-label">API Key</label>
+          <input type="password" id="inputApiKey" placeholder="Paste your API key here">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="field-label">ePub Title</label>
+        <input type="text" id="inputTitle" placeholder="e.g. My Translated Book">
+      </div>
+      <div class="form-group">
+        <label class="field-label">Author</label>
+        <input type="text" id="inputAuthor" placeholder="e.g. John Doe" value="Unknown">
+      </div>
+
+      <div class="card" style="margin-top:16px;padding:16px;background:rgba(139,92,246,.06);border-color:rgba(139,92,246,.18)">
+        <div style="font-size:.82rem;color:var(--text-secondary)">
+          <strong style="color:var(--accent-1)">📊 Extraction Summary</strong><br>
+          Pages: <strong id="sumPages">0</strong> &nbsp;·&nbsp;
+          Paragraphs: <strong id="sumParas">0</strong> &nbsp;·&nbsp;
+          Characters: <strong id="sumChars">0</strong> &nbsp;·&nbsp;
+          Est. Batches: <strong id="sumBatches">0</strong>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="btnBackToUpload">← Back</button>
+        <button class="btn btn-primary" id="btnStartTranslate">🚀 Start Translation</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 3 · TRANSLATE ═══════════ -->
+  <div class="section" id="sec-translate">
+    <div class="card">
+      <div class="card-title"><span class="icon">⚡</span> Translation Progress</div>
+
+      <div class="progress-container">
+        <div class="progress-header">
+          <span id="transLabel">Initializing…</span>
+          <span class="pct" id="transPct">0%</span>
+        </div>
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="transBar"></div></div>
+      </div>
+
+      <div class="progress-stats">
+        <div class="stat-box">
+          <div class="stat-val" id="statDone">0</div>
+          <div class="stat-lbl">Paragraphs Done</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statTotal">0</div>
+          <div class="stat-lbl">Total Paragraphs</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statErrors">0</div>
+          <div class="stat-lbl">Errors</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="statEta">--</div>
+          <div class="stat-lbl">ETA</div>
+        </div>
+      </div>
+
+      <div class="log-box" id="logBox"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════ STEP 4 · RESULT ═══════════ -->
+  <div class="section" id="sec-result">
+    <div class="card result-card">
+      <span class="result-icon">✅</span>
+      <div class="result-title">Conversion Complete!</div>
+      <div class="result-sub" id="resultSub">Your ePub is ready.</div>
+      <div class="result-actions">
+        <button class="btn btn-success" id="btnDownload">⬇️ Download ePub</button>
+        <button class="btn btn-primary" id="btnSaveDrive">☁️ Save to Google Drive</button>
+        <button class="btn btn-secondary" id="btnReset">🔄 Convert Another</button>
+      </div>
+      <div id="driveResult" style="display:none;margin-top:20px">
+        <div style="font-size:.85rem;color:var(--success)">
+          ✅ Saved to Drive! <a id="driveLink" href="#" target="_blank" style="color:var(--accent-2);text-decoration:underline">Open in Drive</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+ *  PDF → ePub Converter  –  Client-Side Controller
+ *  • PDF.js text extraction with Y-axis coordinate mapping
+ *  • Cover extraction (Page-1 → JPEG)
+ *  • Batched NMT translation via google.script.run
+ *  • OEBPS ePub assembly via JSZip
+ * ================================================================ */
+
+// ─── Init PDF.js ───────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ─── App State ─────────────────────────────────────────────────
+const S = {
+  file: null,           // raw File object
+  pdfDoc: null,         // pdf.js document proxy
+  paragraphs: [],       // extracted paragraphs [{page,text}]
+  coverB64: null,       // base64 JPEG of page-1
+  translated: [],       // translated paragraph texts
+  epubBlob: null,       // final Blob
+  epubB64: null,        // base64 for Drive upload
+  errors: [],
+  batchSize: 10,
+  step: 1
+};
+
+// ─── DOM Refs ──────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+// ─── Toast Notifications ──────────────────────────────────────
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  $('toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4000);
+}
+
+// ─── Stepper Control ──────────────────────────────────────────
+function setStep(n) {
+  S.step = n;
+  document.querySelectorAll('.step-item').forEach(el => {
+    const s = +el.dataset.step;
+    el.classList.remove('active', 'done');
+    if (s < n) el.classList.add('done');
+    else if (s === n) el.classList.add('active');
+  });
+  ['1-2','2-3','3-4'].forEach(key => {
+    const [a] = key.split('-').map(Number);
+    const line = $('line-' + key);
+    if (line) line.classList.toggle('filled', a < n);
+  });
+  ['sec-upload','sec-config','sec-translate','sec-result'].forEach((id, i) => {
+    $(id).classList.toggle('visible', i + 1 === n);
+  });
+}
+
+// ─── Populate Languages ───────────────────────────────────────
+function populateLanguages(langs) {
+  ['selSource','selTarget'].forEach(id => {
+    const sel = $(id);
+    const current = sel.value;
+    sel.innerHTML = '';
+    langs.forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.code; opt.textContent = l.name;
+      sel.appendChild(opt);
+    });
+    sel.value = current || (id === 'selSource' ? 'auto' : 'id');
+  });
+}
+
+// ─── STEP 1  ·  UPLOAD & PARSE ────────────────────────────────
+
+// Drop zone interactions
+const dz = $('dropzone');
+dz.addEventListener('click', () => $('fileInput').click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+$('fileInput').addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+async function handleFile(file) {
+  if (file.type !== 'application/pdf') return toast('Please select a PDF file.', 'error');
+  if (file.size > 50 * 1024 * 1024) return toast('File exceeds 50 MB limit.', 'error');
+
+  S.file = file;
+  const arrayBuf = await file.arrayBuffer();
+  S.pdfDoc = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+
+  // Render cover thumbnail
+  await renderCover(S.pdfDoc);
+
+  // Show info
+  $('pdfInfoWrap').style.display = 'block';
+  $('pdfMeta').innerHTML = `
+    <h3>${file.name}</h3>
+    <div class="meta-row"><span>Pages</span><span>${S.pdfDoc.numPages}</span></div>
+    <div class="meta-row"><span>Size</span><span>${(file.size/1024/1024).toFixed(2)} MB</span></div>
+    <div class="meta-row"><span>Type</span><span>PDF Document</span></div>
+  `;
+  $('inputTitle').value = file.name.replace(/\.pdf$/i, '');
+  toast('PDF loaded — ' + S.pdfDoc.numPages + ' pages', 'success');
+}
+
+async function renderCover(pdf) {
+  const page = await pdf.getPage(1);
+  const vp = page.getViewport({ scale: 2 });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width; canvas.height = vp.height;
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  $('pdfThumb').innerHTML = '';
+  // Smaller preview
+  const preview = document.createElement('canvas');
+  const pCtx = preview.getContext('2d');
+  preview.width = 240; preview.height = Math.round(240 * vp.height / vp.width);
+  pCtx.drawImage(canvas, 0, 0, preview.width, preview.height);
+  $('pdfThumb').appendChild(preview);
+  // High-res cover as JPEG base64
+  S.coverB64 = canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
+}
+
+// Parse button
+$('btnParse').addEventListener('click', parsePDF);
+
+async function parsePDF() {
+  if (!S.pdfDoc) return;
+  $('btnParse').disabled = true;
+  $('parseProgress').style.display = 'block';
+  S.paragraphs = [];
+
+  const total = S.pdfDoc.numPages;
+
+  for (let p = 1; p <= total; p++) {
+    const page = await S.pdfDoc.getPage(p);
+    const paras = await extractParagraphsYAxis(page);
+    paras.forEach(t => S.paragraphs.push({ page: p, text: t }));
+
+    const pct = Math.round(p / total * 100);
+    $('parsePct').textContent = pct + '%';
+    $('parseBar').style.width = pct + '%';
+    $('parseLabel').textContent = `Parsing page ${p} / ${total}…`;
+  }
+
+  // Filter empty
+  S.paragraphs = S.paragraphs.filter(p => p.text.trim().length > 0);
+
+  toast(`Extracted ${S.paragraphs.length} paragraphs from ${total} pages`, 'success');
+  log(`✔ Extraction complete: ${S.paragraphs.length} paragraphs`, 'success');
+
+  // Fill summary & go to config
+  $('sumPages').textContent = total;
+  $('sumParas').textContent = S.paragraphs.length;
+  $('sumChars').textContent = S.paragraphs.reduce((s, p) => s + p.text.length, 0).toLocaleString();
+  $('sumBatches').textContent = Math.ceil(S.paragraphs.length / S.batchSize);
+
+  setStep(2);
+}
+
+/* ──────────────────────────────────────────────────────────────
+ *  Y-AXIS COORDINATE MAPPING
+ *  1. Retrieve text items with transformation matrices
+ *  2. Sort by Y descending (top → bottom)
+ *  3. Cluster into lines by Y proximity
+ *  4. Sort each line's items by X (left → right)
+ *  5. Detect paragraph boundaries via Y-gap analysis
+ * ────────────────────────────────────────────────────────────── */
+
+async function extractParagraphsYAxis(page) {
+  const content = await page.getTextContent();
+  const items = content.items.filter(it => it.str && it.str.trim());
+  if (!items.length) return [];
+
+  // Extract position: Y = transform[5], X = transform[4], fontSize ~ transform[0]
+  const positioned = items.map(it => ({
+    str: it.str,
+    x: it.transform[4],
+    y: it.transform[5],
+    fontSize: Math.abs(it.transform[0]) || 12,
+    width: it.width || 0
+  }));
+
+  // ── 1. Cluster into lines by Y proximity ──
+  // Sort top → bottom (higher Y = higher on page in PDF coords)
+  positioned.sort((a, b) => b.y - a.y);
+
+  const lines = [];
+  let curLine = [positioned[0]];
+  let curY = positioned[0].y;
+
+  for (let i = 1; i < positioned.length; i++) {
+    const it = positioned[i];
+    // Threshold: half of average font size in current line
+    const avgFS = curLine.reduce((s, c) => s + c.fontSize, 0) / curLine.length;
+    const threshold = avgFS * 0.45;
+
+    if (Math.abs(it.y - curY) <= threshold) {
+      curLine.push(it);
+    } else {
+      curLine.sort((a, b) => a.x - b.x);   // L → R
+      lines.push({
+        text: curLine.map(c => c.str).join(' ').replace(/\s+/g, ' ').trim(),
+        y: curY,
+        fontSize: avgFS
+      });
+      curLine = [it];
+      curY = it.y;
+    }
+  }
+  // flush last line
+  if (curLine.length) {
+    curLine.sort((a, b) => a.x - b.x);
+    const avgFS = curLine.reduce((s, c) => s + c.fontSize, 0) / curLine.length;
+    lines.push({
+      text: curLine.map(c => c.str).join(' ').replace(/\s+/g, ' ').trim(),
+      y: curY,
+      fontSize: avgFS
+    });
+  }
+
+  if (!lines.length) return [];
+
+  // ── 2. Compute Y-gaps & detect paragraph breaks ──
+  // Typical line spacing ~ 1.2 × fontSize.  Gap > 1.8 × fontSize → new paragraph
+  const paragraphs = [];
+  let paraLines = [lines[0].text];
+
+  for (let i = 1; i < lines.length; i++) {
+    const gap = Math.abs(lines[i - 1].y - lines[i].y);
+    const refFS = lines[i - 1].fontSize;
+    const normalSpacing = refFS * 1.35;
+
+    // New paragraph if gap is significantly larger than normal line spacing
+    // OR if font-size changes drastically (heading detection)
+    const fontSizeChange = Math.abs(lines[i].fontSize - lines[i - 1].fontSize) > 2;
+    const bigGap = gap > normalSpacing * 1.5;
+
+    if (bigGap || fontSizeChange) {
+      paragraphs.push(paraLines.join(' '));
+      paraLines = [lines[i].text];
+    } else {
+      paraLines.push(lines[i].text);
+    }
+  }
+  if (paraLines.length) paragraphs.push(paraLines.join(' '));
+
+  return paragraphs.filter(p => p.trim().length > 2);
+}
+
+// ─── STEP 2  ·  CONFIG ───────────────────────────────────────
+
+$('selProvider').addEventListener('change', () => {
+  const need = $('selProvider').value !== 'google_free';
+  $('apiKeyGroup').classList.toggle('show', need);
+});
+
+$('btnBackToUpload').addEventListener('click', () => setStep(1));
+
+$('btnStartTranslate').addEventListener('click', startTranslation);
+
+// ─── STEP 3  ·  TRANSLATION PIPELINE ─────────────────────────
+
+async function startTranslation() {
+  const srcLang   = $('selSource').value;
+  const tgtLang   = $('selTarget').value;
+  const provider  = $('selProvider').value;
+  const apiKey    = $('inputApiKey').value;
+
+  if (tgtLang === 'auto') return toast('Please select a target language.', 'error');
+  if (provider !== 'google_free' && !apiKey) return toast('API key required.', 'error');
+
+  setStep(3);
+  S.translated = new Array(S.paragraphs.length).fill('');
+  S.errors = [];
+
+  const total = S.paragraphs.length;
+  const batches = [];
+  for (let i = 0; i < total; i += S.batchSize) {
+    batches.push({ start: i, texts: S.paragraphs.slice(i, i + S.batchSize).map(p => p.text) });
+  }
+
+  $('statTotal').textContent = total;
+  let done = 0;
+  let errCount = 0;
+  const t0 = Date.now();
+
+  log('🚀 Starting translation — ' + batches.length + ' batches, ' + total + ' paragraphs');
+  log('Engine: ' + provider + ' | ' + srcLang + ' → ' + tgtLang);
+
+  for (let b = 0; b < batches.length; b++) {
+    const batch = batches[b];
+    log(`📦 Batch ${b + 1}/${batches.length} (¶${batch.start + 1}–${batch.start + batch.texts.length})`);
+
+    try {
+      const result = await callServer('translateBatch', batch.texts, srcLang, tgtLang, provider, apiKey);
+
+      for (let j = 0; j < result.translated.length; j++) {
+        S.translated[batch.start + j] = result.translated[j];
+      }
+      if (result.errors && result.errors.length) {
+        result.errors.forEach(e => { S.errors.push(e); log('⚠ ' + e, 'warn'); });
+        errCount += result.errors.length;
+      }
+    } catch (err) {
+      log('❌ Batch ' + (b + 1) + ' failed: ' + err, 'error');
+      // Fallback: keep originals
+      for (let j = 0; j < batch.texts.length; j++) {
+        S.translated[batch.start + j] = batch.texts[j];
+      }
+      errCount += batch.texts.length;
+    }
+
+    done += batch.texts.length;
+    const pct = Math.round(done / total * 100);
+    $('transPct').textContent = pct + '%';
+    $('transBar').style.width = pct + '%';
+    $('transLabel').textContent = `Translated ${done} / ${total} paragraphs`;
+    $('statDone').textContent = done;
+    $('statErrors').textContent = errCount;
+
+    // ETA
+    const elapsed = (Date.now() - t0) / 1000;
+    const rate = done / elapsed;
+    const remaining = (total - done) / rate;
+    $('statEta').textContent = remaining > 0 ? formatTime(remaining) : '--';
+  }
+
+  log('✅ Translation complete! Building ePub…', 'success');
+  toast('Translation complete!', 'success');
+
+  // Build ePub
+  await buildEpub();
+}
+
+function formatTime(sec) {
+  if (sec < 60) return Math.round(sec) + 's';
+  if (sec < 3600) return Math.round(sec / 60) + 'm ' + Math.round(sec % 60) + 's';
+  return Math.round(sec / 3600) + 'h ' + Math.round((sec % 3600) / 60) + 'm';
+}
+
+// ─── Server Call Wrapper ──────────────────────────────────────
+
+function callServer(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      [fn](...args);
+  });
+}
+
+// ─── Log ─────────────────────────────────────────────────────
+
+function log(msg, cls = '') {
+  const box = $('logBox');
+  const line = document.createElement('span');
+  line.className = 'log-line ' + cls;
+  const ts = new Date().toLocaleTimeString();
+  line.innerHTML = `<span class="ts">[${ts}]</span> ${escHtml(msg)}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── EPUB BUILDER (JSZip · OEBPS) ─────────────────────────────
+
+async function buildEpub() {
+  const zip = new JSZip();
+  const title  = $('inputTitle').value || 'Translated Book';
+  const author = $('inputAuthor').value || 'Unknown';
+  const uid    = 'urn:uuid:' + crypto.randomUUID();
+  const lang   = $('selTarget').value || 'en';
+  const now    = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+
+  // ── mimetype (MUST be first, stored) ──
+  zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+
+  // ── META-INF/container.xml ──
+  zip.file('META-INF/container.xml',
+`<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`);
+
+  // ── Cover image ──
+  let hasCover = false;
+  if (S.coverB64) {
+    zip.file('OEBPS/images/cover.jpg', b64ToUint8(S.coverB64), { binary: true });
+    hasCover = true;
+  }
+
+  // ── Stylesheet ──
+  zip.file('OEBPS/Styles/style.css',
+`@charset "UTF-8";
+body { font-family: Georgia, 'Times New Roman', serif; margin: 1em; line-height: 1.7; color: #222; }
+h1, h2, h3 { font-family: Helvetica, Arial, sans-serif; margin: 1.2em 0 .5em; }
+h1 { font-size: 1.6em; text-align: center; }
+p { margin: 0 0 .8em; text-align: justify; text-indent: 1.5em; }
+p.first { text-indent: 0; }
+.cover-img { text-align: center; margin: 0; padding: 0; }
+.cover-img img { max-width: 100%; max-height: 100%; }
+`);
+
+  // ── Cover XHTML ──
+  if (hasCover) {
+    zip.file('OEBPS/Text/cover.xhtml',
+`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${lang}">
+<head><title>Cover</title><link rel="stylesheet" type="text/css" href="../Styles/style.css"/></head>
+<body>
+  <div class="cover-img"><img src="../images/cover.jpg" alt="Cover"/></div>
+</body>
+</html>`);
+  }
+
+  // ── Chapters ──
+  // Split paragraphs into chapters (~30 paragraphs each)
+  const PARAS_PER_CH = 30;
+  const chapters = [];
+  for (let i = 0; i < S.translated.length; i += PARAS_PER_CH) {
+    chapters.push(S.translated.slice(i, i + PARAS_PER_CH));
+  }
+
+  chapters.forEach((ch, idx) => {
+    const num = String(idx + 1).padStart(3, '0');
+    const body = ch.map((p, pi) =>
+      `  <p${pi === 0 ? ' class="first"' : ''}>${escXml(p)}</p>`
+    ).join('\n');
+
+    zip.file(`OEBPS/Text/chapter_${num}.xhtml`,
+`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="${lang}">
+<head>
+  <title>Chapter ${idx + 1}</title>
+  <link rel="stylesheet" type="text/css" href="../Styles/style.css"/>
+</head>
+<body>
+  <h2>Chapter ${idx + 1}</h2>
+${body}
+</body>
+</html>`);
+  });
+
+  // ── content.opf ──
+  let manifestItems = '';
+  let spineItems = '';
+
+  manifestItems += '    <item id="style" href="Styles/style.css" media-type="text/css"/>\n';
+
+  if (hasCover) {
+    manifestItems += '    <item id="cover-image" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>\n';
+    manifestItems += '    <item id="cover" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>\n';
+    spineItems += '    <itemref idref="cover" linear="no"/>\n';
+  }
+
+  chapters.forEach((_, idx) => {
+    const num = String(idx + 1).padStart(3, '0');
+    manifestItems += `    <item id="ch${num}" href="Text/chapter_${num}.xhtml" media-type="application/xhtml+xml"/>\n`;
+    spineItems += `    <itemref idref="ch${num}"/>\n`;
+  });
+
+  manifestItems += '    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n';
+
+  zip.file('OEBPS/content.opf',
+`<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookID" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookID">${uid}</dc:identifier>
+    <dc:title>${escXml(title)}</dc:title>
+    <dc:creator>${escXml(author)}</dc:creator>
+    <dc:language>${lang}</dc:language>
+    <dc:date>${now}</dc:date>
+    <meta property="dcterms:modified">${now}</meta>
+  </metadata>
+  <manifest>
+${manifestItems}  </manifest>
+  <spine toc="ncx">
+${spineItems}  </spine>
+</package>`);
+
+  // ── toc.ncx ──
+  let navPoints = '';
+  if (hasCover) {
+    navPoints += `    <navPoint id="np-cover" playOrder="1"><navLabel><text>Cover</text></navLabel><content src="Text/cover.xhtml"/></navPoint>\n`;
+  }
+  chapters.forEach((_, idx) => {
+    const num = String(idx + 1).padStart(3, '0');
+    const order = hasCover ? idx + 2 : idx + 1;
+    navPoints += `    <navPoint id="np-${num}" playOrder="${order}"><navLabel><text>Chapter ${idx + 1}</text></navLabel><content src="Text/chapter_${num}.xhtml"/></navPoint>\n`;
+  });
+
+  zip.file('OEBPS/toc.ncx',
+`<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="${uid}"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>${escXml(title)}</text></docTitle>
+  <navMap>
+${navPoints}  </navMap>
+</ncx>`);
+
+  // ── Generate ZIP blob ──
+  log('📦 Compressing ePub archive…');
+  S.epubBlob = await zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/epub+zip',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 }
+  });
+
+  // Also generate base64 for Drive upload
+  const ab = await S.epubBlob.arrayBuffer();
+  S.epubB64 = arrayBufferToBase64(ab);
+
+  const sizeMB = (S.epubBlob.size / 1024 / 1024).toFixed(2);
+  log(`✅ ePub ready — ${sizeMB} MB, ${chapters.length} chapters`, 'success');
+  $('resultSub').textContent = `${title}.epub  ·  ${sizeMB} MB  ·  ${chapters.length} chapters  ·  ${S.paragraphs.length} paragraphs`;
+
+  setStep(4);
+  toast('ePub generated successfully!', 'success');
+}
+
+function escXml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+}
+
+function b64ToUint8(b64) {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// ─── STEP 4  ·  DOWNLOAD & DRIVE ─────────────────────────────
+
+$('btnDownload').addEventListener('click', () => {
+  if (!S.epubBlob) return;
+  const url = URL.createObjectURL(S.epubBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = ($('inputTitle').value || 'book') + '.epub';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Download started!', 'success');
+});
+
+$('btnSaveDrive').addEventListener('click', async () => {
+  if (!S.epubB64) return;
+  $('btnSaveDrive').disabled = true;
+  $('btnSaveDrive').innerHTML = '<span class="spinner"></span> Saving…';
+  try {
+    const name = ($('inputTitle').value || 'book') + '.epub';
+    const result = await callServer('saveEpubToDrive', S.epubB64, name);
+    $('driveResult').style.display = 'block';
+    $('driveLink').href = 'https://drive.google.com/file/d/' + result.fileId + '/view';
+    toast('Saved to Google Drive!', 'success');
+  } catch (e) {
+    toast('Drive save failed: ' + e, 'error');
+  }
+  $('btnSaveDrive').disabled = false;
+  $('btnSaveDrive').innerHTML = '☁️ Save to Google Drive';
+});
+
+$('btnReset').addEventListener('click', () => {
+  S.file = null; S.pdfDoc = null; S.paragraphs = [];
+  S.coverB64 = null; S.translated = []; S.epubBlob = null; S.epubB64 = null;
+  S.errors = [];
+  $('pdfInfoWrap').style.display = 'none';
+  $('parseProgress').style.display = 'none';
+  $('pdfThumb').innerHTML = '';
+  $('logBox').innerHTML = '';
+  $('driveResult').style.display = 'none';
+  $('fileInput').value = '';
+  $('btnParse').disabled = false;
+  $('parsePct').textContent = '0%';
+  $('parseBar').style.width = '0%';
+  $('transPct').textContent = '0%';
+  $('transBar').style.width = '0%';
+  setStep(1);
+});
+
+// ─── INIT ─────────────────────────────────────────────────────
+(function init() {
+  // Load languages from server (or use defaults)
+  try {
+    google.script.run
+      .withSuccessHandler(populateLanguages)
+      .withFailureHandler(() => {})
+      .getSupportedLanguages();
+  } catch(e) { /* running outside Apps Script */ }
+})();
+
+</script>
+</body>
+</html>
