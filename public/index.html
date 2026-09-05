@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PDF → ePub Translator</title>
-<meta name="description" content="Convert and translate PDF books to ePub format using Neural Machine Translation">
+<meta name="description" content="PDF to ePub with Neural Machine Translation — Resume support">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -22,8 +22,6 @@
 }
 html{font-size:16px}
 body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6;overflow-x:hidden}
-
-/* BG */
 .mesh{position:fixed;inset:0;z-index:0;pointer-events:none;
   background:radial-gradient(ellipse 80% 60% at 10% 20%,rgba(139,92,246,.10),transparent 60%),
   radial-gradient(ellipse 60% 50% at 90% 80%,rgba(59,130,246,.08),transparent 55%),
@@ -31,8 +29,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .grid{position:fixed;inset:0;z-index:0;pointer-events:none;
   background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
   background-size:64px 64px}
-
-/* Layout */
 .app{position:relative;z-index:1;max-width:920px;margin:0 auto;padding:20px 16px 60px}
 header{text-align:center;padding:44px 0 20px}
 header h1{font-size:clamp(1.7rem,5vw,2.5rem);font-weight:800;background:var(--grad-t);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-.02em}
@@ -91,6 +87,7 @@ select option{background:#1a1a2e;color:#fff}
 .btn-p:hover{box-shadow:0 6px 28px rgba(139,92,246,.45)}.btn-p:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}
 .btn-s{background:var(--bg-card);color:var(--text);border:1px solid var(--border)}
 .btn-ok{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 4px 18px rgba(34,197,94,.3)}
+.btn-warn{background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;box-shadow:0 4px 18px rgba(245,158,11,.3)}
 .brow{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
 
 /* Progress */
@@ -109,9 +106,16 @@ select option{background:#1a1a2e;color:#fff}
 .ll{display:block}.ll.ok{color:var(--ok)}.ll.err{color:var(--err)}.ll.wrn{color:var(--warn)}
 .ll .ts{color:var(--text3);margin-right:5px}
 
-/* Summary badge */
-.sbadge{margin-top:14px;padding:14px;background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.15);border-radius:var(--rs);font-size:.8rem;color:var(--text2)}
-.sbadge strong{color:var(--a1)}
+/* Reconnect banner */
+.reconn-banner{
+  display:none;align-items:center;justify-content:center;gap:8px;
+  padding:10px 16px;margin-bottom:12px;
+  background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);
+  border-radius:var(--rs);font-size:.82rem;color:#fbbf24;
+  animation:pulse 2s ease-in-out infinite;
+}
+.reconn-banner.show{display:flex}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
 
 /* Result */
 .rcard{text-align:center;padding:44px 20px}
@@ -120,17 +124,16 @@ select option{background:#1a1a2e;color:#fff}
 .r-sub{color:var(--text2);font-size:.85rem;margin-bottom:24px}
 .r-acts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 
-/* Spinner */
 .spin{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:sp .6s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 
-/* Toast */
 .toasts{position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:7px}
 .toast{padding:12px 18px;border-radius:var(--rs);font-size:.82rem;font-weight:500;backdrop-filter:blur(14px);border:1px solid;animation:ti .3s ease;max-width:360px}
 @keyframes ti{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
 .toast.inf{background:rgba(59,130,246,.14);border-color:rgba(59,130,246,.3);color:#93c5fd}
 .toast.ok{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.3);color:#86efac}
 .toast.err{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.3);color:#fca5a5}
+.toast.wrn{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.3);color:#fde68a}
 
 @media(max-width:600px){
   .app{padding:10px 10px 36px}header{padding:24px 0 12px}.card{padding:18px 14px}
@@ -148,11 +151,11 @@ select option{background:#1a1a2e;color:#fff}
 <div class="app">
   <header>
     <h1>📖 PDF → ePub Translator</h1>
-    <p>Neural Machine Translation · Y-Axis Parser · OEBPS ePub 3.0</p>
+    <p>Neural Machine Translation · Auto-Resume · Checkpoint System</p>
   </header>
 
   <!-- STEPPER -->
-  <div class="stepper" id="stepper">
+  <div class="stepper">
     <div class="st on" data-s="1"><div class="st-c">1</div><div class="st-l">Upload</div></div>
     <div class="st-line" id="ln12"></div>
     <div class="st" data-s="2"><div class="st-c">2</div><div class="st-l">Configure</div></div>
@@ -162,7 +165,7 @@ select option{background:#1a1a2e;color:#fff}
     <div class="st" data-s="4"><div class="st-c">4</div><div class="st-l">Download</div></div>
   </div>
 
-  <!-- STEP 1 -->
+  <!-- STEP 1: Upload -->
   <div class="sec vis" id="s1">
     <div class="card">
       <div class="card-t">📄 Upload PDF</div>
@@ -184,7 +187,7 @@ select option{background:#1a1a2e;color:#fff}
     </div>
   </div>
 
-  <!-- STEP 2 -->
+  <!-- STEP 2: Config -->
   <div class="sec" id="s2">
     <div class="card">
       <div class="card-t">🌐 Translation Settings</div>
@@ -213,10 +216,17 @@ select option{background:#1a1a2e;color:#fff}
     </div>
   </div>
 
-  <!-- STEP 3 -->
+  <!-- STEP 3: Processing -->
   <div class="sec" id="s3">
     <div class="card">
       <div class="card-t">⚡ Processing</div>
+
+      <!-- Reconnect banner -->
+      <div class="reconn-banner" id="reconBanner">
+        <span class="spin"></span>
+        <span id="reconText">Reconnecting to server… proses tetap berjalan di background</span>
+      </div>
+
       <div class="pcon">
         <div class="phdr"><span id="pLbl">Initializing…</span><span class="pct" id="pPct">0%</span></div>
         <div class="ptrk"><div class="pfill" id="pBar"></div></div>
@@ -231,7 +241,7 @@ select option{background:#1a1a2e;color:#fff}
     </div>
   </div>
 
-  <!-- STEP 4 -->
+  <!-- STEP 4: Result -->
   <div class="sec" id="s4">
     <div class="card rcard">
       <span class="r-icon">✅</span>
@@ -247,239 +257,233 @@ select option{background:#1a1a2e;color:#fff}
 
 <script>
 /* ================================================================
- *  PDF → ePub Translator  ·  Frontend Controller
- *  - PDF.js for cover rendering (client-side)
- *  - Server-side: parsing + translation + ePub build via SSE
+ *  PDF → ePub Translator v2  ·  Frontend
+ *  ─ Auto-reconnect SSE (proses server tetap jalan)
+ *  ─ Resume-aware progress display
+ *  ─ jobId saved to sessionStorage
  * ================================================================ */
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-/* ── State ──────────────────────────────────────────── */
-const S = { file: null, pdfDoc: null, coverB64: '', jobId: '', dlUrl: '' };
+const S = { file:null, pdfDoc:null, coverB64:'', jobId:'', dlUrl:'', es:null, t0:0, reconnects:0 };
 const $ = id => document.getElementById(id);
 
 /* ── Toast ──────────────────────────────────────────── */
-function toast(msg, t='inf') {
-  const el = document.createElement('div');
-  el.className = 'toast ' + t; el.textContent = msg;
+function toast(msg,t='inf'){
+  const el=document.createElement('div');el.className='toast '+t;el.textContent=msg;
   $('toasts').appendChild(el);
-  setTimeout(() => { el.style.opacity='0'; setTimeout(()=>el.remove(),300); }, 4500);
+  setTimeout(()=>{el.style.opacity='0';setTimeout(()=>el.remove(),300)},4500);
 }
 
 /* ── Stepper ────────────────────────────────────────── */
-function goStep(n) {
-  document.querySelectorAll('.st').forEach(el => {
-    const s = +el.dataset.s;
-    el.classList.remove('on','ok');
-    if (s < n) el.classList.add('ok');
-    else if (s === n) el.classList.add('on');
+function goStep(n){
+  document.querySelectorAll('.st').forEach(el=>{
+    const s=+el.dataset.s;el.classList.remove('on','ok');
+    if(s<n)el.classList.add('ok');else if(s===n)el.classList.add('on');
   });
-  [['ln12',1],['ln23',2],['ln34',3]].forEach(([id,v]) => {
-    $(id).classList.toggle('fill', v < n);
-  });
-  for (let i = 1; i <= 4; i++) $('s'+i).classList.toggle('vis', i === n);
+  [['ln12',1],['ln23',2],['ln34',3]].forEach(([id,v])=>$(id).classList.toggle('fill',v<n));
+  for(let i=1;i<=4;i++) $('s'+i).classList.toggle('vis',i===n);
 }
 
-/* ── Populate languages ─────────────────────────────── */
-async function loadLangs() {
-  try {
-    const r = await fetch('/api/languages');
-    const langs = await r.json();
-    ['srcL','tgtL'].forEach(id => {
-      const sel = $(id), cur = sel.value;
-      sel.innerHTML = '';
-      langs.forEach(l => {
-        const o = document.createElement('option');
-        o.value = l.code; o.textContent = l.name; sel.appendChild(o);
-      });
-      sel.value = cur || (id === 'srcL' ? 'auto' : 'id');
+/* ── Languages ──────────────────────────────────────── */
+async function loadLangs(){
+  try{
+    const r=await fetch('/api/languages');const langs=await r.json();
+    ['srcL','tgtL'].forEach(id=>{
+      const sel=$(id),cur=sel.value;sel.innerHTML='';
+      langs.forEach(l=>{const o=document.createElement('option');o.value=l.code;o.textContent=l.name;sel.appendChild(o);});
+      sel.value=cur||(id==='srcL'?'auto':'id');
     });
-  } catch(e) { console.warn('Could not load languages:', e); }
+  }catch(e){}
 }
 loadLangs();
 
 /* ── STEP 1: Upload ─────────────────────────────────── */
-const dz = $('dz');
-dz.onclick = () => $('fi').click();
-dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
-dz.ondragleave = () => dz.classList.remove('over');
-dz.ondrop = e => { e.preventDefault(); dz.classList.remove('over'); if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); };
-$('fi').onchange = e => { if(e.target.files.length) handleFile(e.target.files[0]); };
+const dz=$('dz');
+dz.onclick=()=>$('fi').click();
+dz.ondragover=e=>{e.preventDefault();dz.classList.add('over');};
+dz.ondragleave=()=>dz.classList.remove('over');
+dz.ondrop=e=>{e.preventDefault();dz.classList.remove('over');if(e.dataTransfer.files.length)handleFile(e.dataTransfer.files[0]);};
+$('fi').onchange=e=>{if(e.target.files.length)handleFile(e.target.files[0]);};
 
-async function handleFile(file) {
-  if (file.type !== 'application/pdf') return toast('Please select a PDF file.','err');
-  if (file.size > 100*1024*1024) return toast('File exceeds 100 MB.','err');
-  S.file = file;
-  const ab = await file.arrayBuffer();
-  S.pdfDoc = await pdfjsLib.getDocument({data:ab}).promise;
+async function handleFile(file){
+  if(file.type!=='application/pdf')return toast('Please select a PDF file.','err');
+  if(file.size>100*1024*1024)return toast('File exceeds 100 MB.','err');
+  S.file=file;
+  const ab=await file.arrayBuffer();
+  S.pdfDoc=await pdfjsLib.getDocument({data:ab}).promise;
   await renderCover();
-  $('piw').style.display = 'block';
-  $('pme').innerHTML = `
-    <h3>${file.name}</h3>
+  $('piw').style.display='block';
+  $('pme').innerHTML=`<h3>${file.name}</h3>
     <div class="mrow"><span>Pages</span><span>${S.pdfDoc.numPages}</span></div>
     <div class="mrow"><span>Size</span><span>${(file.size/1048576).toFixed(2)} MB</span></div>`;
-  $('inTitle').value = file.name.replace(/\.pdf$/i,'');
+  $('inTitle').value=file.name.replace(/\.pdf$/i,'');
   toast('PDF loaded — '+S.pdfDoc.numPages+' pages','ok');
 }
 
-async function renderCover() {
-  const page = await S.pdfDoc.getPage(1);
-  const vp = page.getViewport({scale:2});
-  const c = document.createElement('canvas');
-  c.width = vp.width; c.height = vp.height;
+async function renderCover(){
+  const page=await S.pdfDoc.getPage(1);
+  const vp=page.getViewport({scale:2});
+  const c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;
   await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
-  S.coverB64 = c.toDataURL('image/jpeg',.9).split(',')[1];
-  const p = document.createElement('canvas');
-  p.width=220; p.height=Math.round(220*vp.height/vp.width);
+  S.coverB64=c.toDataURL('image/jpeg',.9).split(',')[1];
+  const p=document.createElement('canvas');
+  p.width=220;p.height=Math.round(220*vp.height/vp.width);
   p.getContext('2d').drawImage(c,0,0,p.width,p.height);
-  $('pth').innerHTML=''; $('pth').appendChild(p);
+  $('pth').innerHTML='';$('pth').appendChild(p);
 }
 
-$('bNext1').onclick = () => goStep(2);
+$('bNext1').onclick=()=>goStep(2);
 
 /* ── STEP 2: Config ─────────────────────────────────── */
-$('prov').onchange = () => $('apiG').classList.toggle('show', $('prov').value!=='google_free');
-$('bBack2').onclick = () => goStep(1);
-$('bStart').onclick = startProcess;
+$('prov').onchange=()=>$('apiG').classList.toggle('show',$('prov').value!=='google_free');
+$('bBack2').onclick=()=>goStep(1);
+$('bStart').onclick=startProcess;
 
-/* ── STEP 3: Process (upload → SSE stream) ──────────── */
-async function startProcess() {
-  if (!S.file) return toast('No PDF loaded.','err');
-  const tgtL = $('tgtL').value;
-  if (tgtL === 'auto') return toast('Select a target language.','err');
-  if ($('prov').value !== 'google_free' && !$('apiK').value) return toast('API key required.','err');
+/* ══════════════════════════════════════════════════════
+ *  STEP 3: Upload → Start background job → Connect SSE
+ *  Server proses TETAP JALAN walau koneksi putus.
+ *  SSE auto-reconnect dengan exponential backoff.
+ * ══════════════════════════════════════════════════════ */
 
-  goStep(3);
-  logClear();
+async function startProcess(){
+  if(!S.file)return toast('No PDF loaded.','err');
+  const tgtL=$('tgtL').value;
+  if(tgtL==='auto')return toast('Select a target language.','err');
+  if($('prov').value!=='google_free'&&!$('apiK').value)return toast('API key required.','err');
+
+  goStep(3);logClear();
   log('📤 Uploading PDF to server…');
 
   // 1. Upload
-  const fd = new FormData();
-  fd.append('pdf', S.file);
-  fd.append('sourceLang', $('srcL').value);
-  fd.append('targetLang', tgtL);
-  fd.append('provider', $('prov').value);
-  fd.append('apiKey', $('apiK').value);
-  fd.append('title', $('inTitle').value || 'Book');
-  fd.append('author', $('inAuthor').value || 'Unknown');
-  fd.append('coverBase64', S.coverB64);
+  const fd=new FormData();
+  fd.append('pdf',S.file);
+  fd.append('sourceLang',$('srcL').value);
+  fd.append('targetLang',tgtL);
+  fd.append('provider',$('prov').value);
+  fd.append('apiKey',$('apiK').value);
+  fd.append('title',$('inTitle').value||'Book');
+  fd.append('author',$('inAuthor').value||'Unknown');
+  fd.append('coverBase64',S.coverB64);
 
-  let uploadRes;
-  try {
-    const r = await fetch('/api/upload', { method:'POST', body:fd });
-    uploadRes = await r.json();
-    if (!uploadRes.jobId) throw new Error(uploadRes.error || 'Upload failed');
-  } catch(e) {
+  let res;
+  try{
+    const r=await fetch('/api/upload',{method:'POST',body:fd});
+    res=await r.json();
+    if(!res.jobId)throw new Error(res.error||'Upload failed');
+  }catch(e){
     log('❌ Upload failed: '+e.message,'err');
-    toast('Upload failed.','err');
-    return;
+    toast('Upload failed.','err');return;
   }
 
-  S.jobId = uploadRes.jobId;
-  log('✔ Upload successful. Starting processing…','ok');
+  S.jobId=res.jobId;
+  S.t0=Date.now();
+  S.reconnects=0;
 
-  // 2. SSE stream
-  const t0 = Date.now();
-  const es = new EventSource('/api/process/' + S.jobId);
+  // Save jobId to sessionStorage for page refresh recovery
+  sessionStorage.setItem('activeJobId',S.jobId);
 
-  es.onmessage = (ev) => {
-    const d = JSON.parse(ev.data);
+  log('✔ Upload OK. Job: '+S.jobId.slice(0,8)+'…','ok');
+  log('⚡ Server sedang memproses di background — koneksi putus tidak masalah!','ok');
 
-    switch(d.phase) {
-      case 'parsing':
-        $('pLbl').textContent = d.message || 'Parsing…';
-        if (d.total) {
-          const p = Math.round((d.current/d.total)*100);
-          $('pPct').textContent = p+'%'; $('pBar').style.width = p+'%';
-        }
-        break;
+  // 2. Start processing and connect SSE
+  connectSSE(S.jobId, true);
+}
 
-      case 'parsed':
-        $('sTotal').textContent = d.total;
-        log('✔ '+d.message,'ok');
-        break;
+/* ── SSE CONNECTION with auto-reconnect ──────────────── */
 
-      case 'translating':
-        $('pLbl').textContent = d.message || 'Translating…';
-        if (d.total) {
-          const p = Math.round((d.current/d.total)*100);
-          $('pPct').textContent = p+'%'; $('pBar').style.width = p+'%';
-          $('sDone').textContent = d.current;
-          $('sTotal').textContent = d.total;
-          $('sErr').textContent = d.errors || 0;
-          // ETA
-          const elapsed = (Date.now()-t0)/1000;
-          const rate = d.current/elapsed;
-          const rem = rate>0 ? (d.total-d.current)/rate : 0;
-          $('sEta').textContent = fmtTime(rem);
-        }
-        // Log every 50 paragraphs
-        if (d.current && d.current % 50 === 0) log(`📝 ${d.current}/${d.total} translated`);
-        break;
+function connectSSE(jobId, start=false){
+  // Close existing connection
+  if(S.es){try{S.es.close();}catch(_){}}
 
-      case 'building':
-        log('📦 '+d.message);
-        $('pLbl').textContent = d.message;
-        $('pPct').textContent = '99%'; $('pBar').style.width = '99%';
-        break;
+  const es=new EventSource((start?'/api/process/':'/api/events/')+jobId);
+  S.es=es;
 
-      case 'done':
-        es.close();
-        S.dlUrl = d.downloadUrl;
-        $('pPct').textContent = '100%'; $('pBar').style.width = '100%';
-        log('✅ '+d.message,'ok');
-        toast('ePub ready!','ok');
-        $('rSub').textContent = ($('inTitle').value||'Book')+'.epub — '+d.sizeMB+' MB';
-        goStep(4);
-        break;
-
-      case 'error':
-        es.close();
-        log('❌ '+d.message,'err');
-        toast('Error: '+d.message,'err');
-        break;
+  es.onopen=()=>{
+    $('reconBanner').classList.remove('show');
+    if(S.reconnects>0){
+      log('✔ Reconnected! Proses server tetap berjalan.','ok');
+      toast('Reconnected!','ok');
     }
   };
 
-  es.onerror = () => {
+  es.onmessage=(ev)=>{
+    const d=JSON.parse(ev.data);
+    handleProgress(d);
+  };
+
+  es.onerror=()=>{
     es.close();
-    log('⚠ Live connection interrupted; checking job status…','warn');
-    recoverJobStatus();
+    S.reconnects++;
+
+    // Show reconnecting banner
+    $('reconBanner').classList.add('show');
+    $('reconText').textContent=`Reconnecting (attempt ${S.reconnects})… proses server tetap berjalan`;
+    log('⚠ Connection lost — reconnecting in '+Math.min(S.reconnects*2,10)+'s…','wrn');
+
+    // Auto-reconnect with backoff (max 10s)
+    const delay=Math.min(S.reconnects*2000,10000);
+    setTimeout(()=>connectSSE(jobId),delay);
   };
+}
 
-  async function recoverJobStatus() {
-    try {
-      const r = await fetch('/api/status/' + S.jobId);
-      const d = await r.json();
-      if (d.status === 'done' && d.downloadUrl) {
-        S.dlUrl = d.downloadUrl;
-        $('pPct').textContent = '100%'; $('pBar').style.width = '100%';
-        log('✅ ePub selesai diproses.','ok');
-        $('rSub').textContent = ($('inTitle').value||'Book')+'.epub';
-        goStep(4);
-        return;
+function handleProgress(d){
+  switch(d.phase){
+    case 'parsing':
+      $('pLbl').textContent=d.message||'Parsing…';
+      if(d.total){
+        const p=Math.round((d.current/d.total)*100);
+        $('pPct').textContent=p+'%';$('pBar').style.width=p+'%';
       }
-      if (d.status === 'error') {
-        log('❌ '+(d.progress?.message || 'Processing failed.'),'err');
-        toast('Processing failed.','err');
-        return;
-      }
-      if (d.progress) updateProgress(d.progress);
-      setTimeout(recoverJobStatus, 3000);
-    } catch (_) {
-      setTimeout(recoverJobStatus, 5000);
-    }
-  }
+      break;
 
-  function updateProgress(d) {
-    if (d.total) {
-      const p = Math.round((d.current / d.total) * 100);
-      $('pPct').textContent = p+'%'; $('pBar').style.width = p+'%';
-      $('sDone').textContent = d.current; $('sTotal').textContent = d.total;
-      $('sErr').textContent = d.errors || 0;
-    }
-    if (d.phase === 'building') $('pLbl').textContent = 'Building ePub…';
+    case 'parsed':
+      $('sTotal').textContent=d.total;
+      log('✔ '+d.message,'ok');
+      break;
+
+    case 'translating':
+      $('pLbl').textContent=d.message||'Translating…';
+      if(d.total){
+        const p=Math.round((d.current/d.total)*100);
+        $('pPct').textContent=p+'%';$('pBar').style.width=p+'%';
+        $('sDone').textContent=d.current;
+        $('sTotal').textContent=d.total;
+        $('sErr').textContent=d.errors||0;
+        const elapsed=(Date.now()-S.t0)/1000;
+        const rate=d.current/elapsed;
+        const rem=rate>0?(d.total-d.current)/rate:0;
+        $('sEta').textContent=fmtTime(rem);
+      }
+      if(d.resumed){
+        log('♻ Resumed from paragraph '+d.current+'/'+d.total,'ok');
+      }
+      if(d.current&&d.current%50===0)log(`📝 ${d.current}/${d.total} translated`);
+      break;
+
+    case 'building':
+      log('📦 '+d.message);
+      $('pLbl').textContent=d.message;
+      $('pPct').textContent='99%';$('pBar').style.width='99%';
+      break;
+
+    case 'done':
+      if(S.es)S.es.close();
+      S.dlUrl=d.downloadUrl;
+      $('pPct').textContent='100%';$('pBar').style.width='100%';
+      log('✅ '+d.message,'ok');
+      toast('ePub ready!','ok');
+      $('rSub').textContent=($('inTitle').value||'Book')+'.epub — '+(d.sizeMB||'?')+' MB';
+      sessionStorage.removeItem('activeJobId');
+      goStep(4);
+      break;
+
+    case 'error':
+      if(S.es)S.es.close();
+      log('❌ '+d.message,'err');
+      toast('Error: '+d.message,'err');
+      break;
   }
 }
 
@@ -501,22 +505,59 @@ function logClear(){$('log').innerHTML='';}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 /* ── STEP 4: Download ──────────────────────────────── */
-$('bDl').onclick = () => {
-  if (!S.dlUrl) return;
-  const a = document.createElement('a');
-  a.href = S.dlUrl; a.download = ($('inTitle').value||'book')+'.epub';
-  a.click();
-  toast('Download started!','ok');
+$('bDl').onclick=()=>{
+  if(!S.dlUrl)return;
+  const a=document.createElement('a');
+  a.href=S.dlUrl;a.download=($('inTitle').value||'book')+'.epub';
+  a.click();toast('Download started!','ok');
 };
-
-$('bReset').onclick = () => {
-  S.file=null;S.pdfDoc=null;S.coverB64='';S.jobId='';S.dlUrl='';
+$('bReset').onclick=()=>{
+  if(S.es)try{S.es.close();}catch(_){}
+  S.file=null;S.pdfDoc=null;S.coverB64='';S.jobId='';S.dlUrl='';S.es=null;
   $('piw').style.display='none';$('pth').innerHTML='';$('fi').value='';
   $('pPct').textContent='0%';$('pBar').style.width='0%';
-  $('sDone').textContent='0';$('sTotal').textContent='0';$('sErr').textContent='0';$('sEta').textContent='--';
-  logClear();
-  goStep(1);
+  $('sDone').textContent='0';$('sTotal').textContent='0';
+  $('sErr').textContent='0';$('sEta').textContent='--';
+  $('reconBanner').classList.remove('show');
+  sessionStorage.removeItem('activeJobId');
+  logClear();goStep(1);
 };
+
+/* ══════════════════════════════════════════════════════
+ *  RECOVER: if page is refreshed during processing,
+ *  reconnect to the running job automatically.
+ * ══════════════════════════════════════════════════════ */
+(function recover(){
+  const savedJob=sessionStorage.getItem('activeJobId');
+  if(!savedJob)return;
+
+  // Check if job is still alive
+  fetch('/api/status/'+savedJob)
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.error)return sessionStorage.removeItem('activeJobId');
+
+      S.jobId=savedJob;
+      S.t0=Date.now()-(d.currentIndex||0)*350; // estimate start time
+
+      // Restore UI to step 3
+      goStep(3);
+      log('♻ Recovering session — job '+savedJob.slice(0,8)+'…','ok');
+      log(`📊 Status: ${d.currentIndex||0}/${d.totalParagraphs||0} paragraphs (${d.status})`,'ok');
+
+      if(d.status==='done'){
+        S.dlUrl=d.downloadUrl;
+        $('rSub').textContent='ePub ready — '+d.sizeMB+' MB';
+        goStep(4);
+        toast('ePub sudah siap! Download sekarang.','ok');
+        return;
+      }
+
+      // Connect SSE
+      connectSSE(savedJob,d.status!=='processing');
+    })
+    .catch(()=>sessionStorage.removeItem('activeJobId'));
+})();
 </script>
 </body>
 </html>

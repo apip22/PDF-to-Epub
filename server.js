@@ -33,6 +33,8 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
 
+app.get('/health', (_, res) => res.json({ status: 'ok', service: 'pdf-to-epub-translator' }));
+
 // ── In-memory job store ────────────────────────────────
 const jobs = {};
 
@@ -90,7 +92,42 @@ app.get('/api/status/:jobId', (req, res) => {
   const job = jobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: 'Job not found' });
   res.json({ status: job.status, progress: job.progress, errors: job.errors,
+    currentIndex: job.progress.current, totalParagraphs: job.progress.total,
     downloadUrl: job.epubPath ? `/api/download/${req.params.jobId}` : null });
+});
+
+// Reconnectable SSE stream. Processing continues independently of this connection.
+app.get('/api/events/:jobId', (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  let last = '';
+  const emit = () => {
+    const state = JSON.stringify({
+      phase: job.progress.phase,
+      current: job.progress.current,
+      total: job.progress.total,
+      errors: job.progress.errors,
+      message: job.progress.message,
+      downloadUrl: job.epubPath ? `/api/download/${req.params.jobId}` : null
+    });
+    if (state !== last) {
+      res.write(`data: ${state}\n\n`);
+      last = state;
+    }
+    if (job.status === 'done' || job.status === 'error') {
+      clearInterval(timer);
+      res.end();
+    }
+  };
+  const timer = setInterval(emit, 1000);
+  req.on('close', () => clearInterval(timer));
+  emit();
 });
 
 /**
@@ -135,6 +172,8 @@ app.get('/api/process/:jobId', async (req, res) => {
       message: `Berhasil mengekstrak ${paragraphs.length} paragraf`
     });
     job.progress = { phase: 'parsed', current: paragraphs.length, total: paragraphs.length, errors: 0 };
+    job.paragraphs = paragraphs;
+    job.translated = job.translated || new Array(paragraphs.length).fill('');
 
     if (paragraphs.length === 0) {
       send({ phase: 'error', message: 'Tidak ada teks yang ditemukan di PDF.' });
@@ -150,13 +189,23 @@ app.get('/api/process/:jobId', async (req, res) => {
       message: 'Memulai terjemahan…'
     });
 
+    const existingResult = job.translated || null;
+    const startFrom = existingResult
+      ? existingResult.findIndex((value, index) => !value && paragraphs[index] && paragraphs[index].trim().length > 0)
+      : 0;
+    const resumeFrom = startFrom < 0 ? paragraphs.length : startFrom;
+
     const translated = await translateParagraphs(
       paragraphs,
       {
         sourceLang: job.sourceLang,
         targetLang: job.targetLang,
         provider:   job.provider,
-        apiKey:     job.apiKey
+        apiKey:     job.apiKey,
+        onCheckpoint: async (result, current, errors) => {
+          job.translated = [...result];
+          job.progress = { phase: 'translating', current, total: paragraphs.length, errors };
+        }
       },
       (current, total, errorCount) => {
         job.progress = { phase: 'translating', current, total, errors: errorCount };
@@ -167,8 +216,12 @@ app.get('/api/process/:jobId', async (req, res) => {
           errors: errorCount,
           message: `Menerjemahkan paragraf ${current}/${total}`
         });
-      }
+      },
+      resumeFrom,
+      existingResult
     );
+    translated.layout = paragraphs.layout || [];
+    job.layout = translated.layout;
         job.progress = { phase: 'building', current: paragraphs.length, total: paragraphs.length, errors: 0 };
 
     // ── Phase 3: Build ePub ─────────────────────────────
@@ -178,7 +231,8 @@ app.get('/api/process/:jobId', async (req, res) => {
       title:       job.title,
       author:      job.author,
       language:    job.targetLang,
-      coverBase64: job.coverBase64
+      coverBase64: job.coverBase64,
+      layout:      job.layout || paragraphs.layout || []
     }, req.params.jobId);
 
     job.epubPath = epubPath;
