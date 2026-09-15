@@ -17,7 +17,7 @@ const { translateParagraphs } = require('./lib/translator');
 const { buildEpub }           = require('./lib/epubBuilder');
 
 // ── Ensure directories exist ───────────────────────────
-['uploads', 'output'].forEach(d => {
+['uploads', 'output', path.join('output', 'jobs')].forEach(d => {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 });
 
@@ -37,6 +37,28 @@ app.get('/health', (_, res) => res.json({ status: 'ok', service: 'pdf-to-epub-tr
 
 // ── In-memory job store ────────────────────────────────
 const jobs = {};
+const jobManifestDir = path.join(__dirname, 'output', 'jobs');
+
+function persistJob(jobId, job) {
+  const target = path.join(jobManifestDir, `${jobId}.json`);
+  const temp = `${target}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(job, null, 2), 'utf8');
+  fs.renameSync(temp, target);
+}
+
+for (const file of fs.readdirSync(jobManifestDir)) {
+  if (!file.endsWith('.json')) continue;
+  try {
+    const job = JSON.parse(fs.readFileSync(path.join(jobManifestDir, file), 'utf8'));
+    if (job.filePath && fs.existsSync(job.filePath)) {
+      if (job.status === 'processing') {
+        job.status = 'error';
+        job.progress = { ...job.progress, phase: 'error', message: 'Server restarted while this job was processing.' };
+      }
+      jobs[path.basename(file, '.json')] = job;
+    }
+  } catch (error) { console.warn('Could not restore job manifest:', file, error.message); }
+}
 
 // Cleanup old jobs every 30 minutes
 setInterval(() => {
@@ -78,8 +100,11 @@ app.post('/api/upload', upload.single('pdf'), (req, res) => {
     coverBase64: req.body.coverBase64 || '',
     epubPath:    null,
     progress:    { phase: 'uploaded', current: 0, total: 0, errors: 0 },
-    errors:      []
+    errors:      [],
+    statuses:    [],
+    failedIndices: []
   };
+  persistJob(jobId, jobs[jobId]);
 
   res.json({ jobId, message: 'Upload successful' });
 });
@@ -92,7 +117,9 @@ app.get('/api/status/:jobId', (req, res) => {
   const job = jobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: 'Job not found' });
   res.json({ status: job.status, progress: job.progress, errors: job.errors,
+    failedIndices: job.failedIndices || [],
     currentIndex: job.progress.current, totalParagraphs: job.progress.total,
+    partial: (job.failedIndices || []).length > 0,
     downloadUrl: job.epubPath ? `/api/download/${req.params.jobId}` : null });
 });
 
@@ -138,6 +165,7 @@ app.get('/api/process/:jobId', async (req, res) => {
   const job = jobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: 'Job not found' });
   if (job.status === 'processing') return res.status(409).json({ error: 'Already processing' });
+  const mode = req.query.mode === 'retry-errors' ? 'retry-errors' : 'continue';
 
   // SSE headers
   res.setHeader('Content-Type',  'text/event-stream');
@@ -156,13 +184,15 @@ app.get('/api/process/:jobId', async (req, res) => {
   };
 
   job.status = 'processing';
+  persistJob(req.params.jobId, job);
 
   try {
     // ── Phase 1: Parse PDF ──────────────────────────────
     send({ phase: 'parsing', message: 'Memulai parsing PDF…' });
 
-    const paragraphs = await parsePDF(job.filePath, (current, total) => {
+    const paragraphs = job.paragraphs || await parsePDF(job.filePath, (current, total) => {
       job.progress = { phase: 'parsing', current, total, errors: 0 };
+      persistJob(req.params.jobId, job);
       send({ phase: 'parsing', current, total, message: `Parsing halaman ${current}/${total}` });
     });
 
@@ -173,7 +203,11 @@ app.get('/api/process/:jobId', async (req, res) => {
     });
     job.progress = { phase: 'parsed', current: paragraphs.length, total: paragraphs.length, errors: 0 };
     job.paragraphs = paragraphs;
+    job.layout = paragraphs.layout || job.layout || [];
     job.translated = job.translated || new Array(paragraphs.length).fill('');
+    job.statuses = job.statuses || new Array(paragraphs.length).fill('pending');
+    job.failedIndices = job.failedIndices || [];
+    persistJob(req.params.jobId, job);
 
     if (paragraphs.length === 0) {
       send({ phase: 'error', message: 'Tidak ada teks yang ditemukan di PDF.' });
@@ -190,10 +224,9 @@ app.get('/api/process/:jobId', async (req, res) => {
     });
 
     const existingResult = job.translated || null;
-    const startFrom = existingResult
-      ? existingResult.findIndex((value, index) => !value && paragraphs[index] && paragraphs[index].trim().length > 0)
+    const resumeFrom = mode === 'retry-errors'
+      ? Math.min(...(job.failedIndices.length ? job.failedIndices : [paragraphs.length]))
       : 0;
-    const resumeFrom = startFrom < 0 ? paragraphs.length : startFrom;
 
     const translated = await translateParagraphs(
       paragraphs,
@@ -202,9 +235,15 @@ app.get('/api/process/:jobId', async (req, res) => {
         targetLang: job.targetLang,
         provider:   job.provider,
         apiKey:     job.apiKey,
-        onCheckpoint: async (result, current, errors) => {
+        mode,
+        existingStatuses: job.statuses,
+        onCheckpoint: async (result, statuses, current, errors) => {
           job.translated = [...result];
+          job.statuses = [...statuses];
+          job.failedIndices = statuses.map((status, index) => status === 'failed' ? index : -1).filter(index => index >= 0);
           job.progress = { phase: 'translating', current, total: paragraphs.length, errors };
+          job.errors = job.failedIndices.map(index => ({ index, message: 'Translation failed' }));
+          persistJob(req.params.jobId, job);
         }
       },
       (current, total, errorCount) => {
@@ -222,7 +261,8 @@ app.get('/api/process/:jobId', async (req, res) => {
     );
     translated.layout = paragraphs.layout || [];
     job.layout = translated.layout;
-        job.progress = { phase: 'building', current: paragraphs.length, total: paragraphs.length, errors: 0 };
+    persistJob(req.params.jobId, job);
+      job.progress = { phase: 'building', current: paragraphs.length, total: paragraphs.length, errors: job.failedIndices.length };
 
     // ── Phase 3: Build ePub ─────────────────────────────
     send({ phase: 'building', message: 'Merakit file ePub…' });
@@ -237,7 +277,8 @@ app.get('/api/process/:jobId', async (req, res) => {
 
     job.epubPath = epubPath;
     job.status = 'done';
-    job.progress = { phase: 'done', current: paragraphs.length, total: paragraphs.length, errors: 0 };
+    job.progress = { phase: 'done', current: paragraphs.length, total: paragraphs.length, errors: job.failedIndices.length };
+    persistJob(req.params.jobId, job);
 
     const stats = fs.statSync(epubPath);
     const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
@@ -246,14 +287,17 @@ app.get('/api/process/:jobId', async (req, res) => {
       phase: 'done',
       message: `ePub siap! (${sizeMB} MB)`,
       downloadUrl: `/api/download/${req.params.jobId}`,
-      sizeMB
+      sizeMB,
+      errors: job.failedIndices || [],
+      partial: (job.failedIndices || []).length > 0
     });
 
   } catch (err) {
     console.error('Processing error:', err);
     send({ phase: 'error', message: 'Error: ' + err.message });
     job.status = 'error';
-    job.progress = { phase: 'error', current: 0, total: 0, errors: 1, message: err.message };
+    job.progress = { phase: 'error', current: job.progress.current || 0, total: job.progress.total || 0, errors: job.failedIndices?.length || 1, message: err.message };
+    persistJob(req.params.jobId, job);
   }
 
   res.end();

@@ -238,6 +238,10 @@ select option{background:#1a1a2e;color:#fff}
         <div class="sbox"><div class="sv" id="sEta">--</div><div class="sl">ETA</div></div>
       </div>
       <div class="logbox" id="log"></div>
+      <div class="brow">
+        <button class="btn btn-p" id="bContinue" type="button">▶ Lanjutkan yang belum selesai</button>
+        <button class="btn btn-warn" id="bRetryErrors" type="button">↻ Ulangi yang error</button>
+      </div>
     </div>
   </div>
 
@@ -249,6 +253,7 @@ select option{background:#1a1a2e;color:#fff}
       <div class="r-sub" id="rSub">Your ePub is ready.</div>
       <div class="r-acts">
         <button class="btn btn-ok" id="bDl">⬇️ Download ePub</button>
+        <button class="btn btn-warn" id="bRetryDone" type="button" hidden>↻ Ulangi yang error</button>
         <button class="btn btn-s" id="bReset">🔄 Convert Another</button>
       </div>
     </div>
@@ -340,6 +345,9 @@ $('bNext1').onclick=()=>goStep(2);
 $('prov').onchange=()=>$('apiG').classList.toggle('show',$('prov').value!=='google_free');
 $('bBack2').onclick=()=>goStep(1);
 $('bStart').onclick=startProcess;
+$('bContinue').onclick=()=>resumeJob('continue');
+$('bRetryErrors').onclick=()=>resumeJob('retry-errors');
+$('bRetryDone').onclick=()=>resumeJob('retry-errors');
 
 /* ══════════════════════════════════════════════════════
  *  STEP 3: Upload → Start background job → Connect SSE
@@ -393,11 +401,11 @@ async function startProcess(){
 
 /* ── SSE CONNECTION with auto-reconnect ──────────────── */
 
-function connectSSE(jobId, start=false){
+function connectSSE(jobId, start=false, mode='continue'){
   // Close existing connection
   if(S.es){try{S.es.close();}catch(_){}}
 
-  const es=new EventSource((start?'/api/process/':'/api/events/')+jobId);
+  const es=new EventSource((start?'/api/process/'+jobId+'?mode='+encodeURIComponent(mode):'/api/events/'+jobId));
   S.es=es;
 
   es.onopen=()=>{
@@ -426,6 +434,15 @@ function connectSSE(jobId, start=false){
     const delay=Math.min(S.reconnects*2000,10000);
     setTimeout(()=>connectSSE(jobId),delay);
   };
+}
+
+function resumeJob(mode){
+  if(!S.jobId)return toast('Tidak ada pekerjaan untuk dilanjutkan.','err');
+  if(S.es)try{S.es.close();}catch(_){ }
+  goStep(3);
+  log(mode==='retry-errors'?'↻ Mengulang paragraf yang error…':'▶ Melanjutkan paragraf yang belum selesai…','wrn');
+  S.reconnects=0;
+  connectSSE(S.jobId,true,mode);
 }
 
 function handleProgress(d){
@@ -475,6 +492,7 @@ function handleProgress(d){
       log('✅ '+d.message,'ok');
       toast('ePub ready!','ok');
       $('rSub').textContent=($('inTitle').value||'Book')+'.epub — '+(d.sizeMB||'?')+' MB';
+      $('bRetryDone').hidden=!(d.partial||d.errors?.length);
       sessionStorage.removeItem('activeJobId');
       goStep(4);
       break;
