@@ -138,7 +138,7 @@ select option{background:#1a1a2e;color:#fff}
 .mode-card{text-align:left;min-height:150px;color:var(--text);background:var(--bg-glass);border:1px solid var(--border);border-radius:var(--r);padding:22px;cursor:pointer;transition:.25s}
 .mode-card:hover{border-color:var(--a3);transform:translateY(-3px);box-shadow:0 8px 26px rgba(6,182,212,.16)}
 .mode-card strong{display:block;font-size:1rem;margin:10px 0 5px}.mode-card span{display:block;color:var(--text2);font-size:.78rem}.mode-icon{font-size:1.8rem}
-.translation-only.hidden{display:none}
+.translation-only.hidden{display:none}.edit-list{display:grid;gap:12px;max-height:58vh;overflow:auto;padding-right:4px}.edit-item{display:grid;grid-template-columns:52px 1fr;gap:10px;align-items:start}.edit-item label{color:var(--text3);font-size:.75rem;padding-top:12px;text-align:right}.edit-item textarea{width:100%;min-height:92px;resize:vertical;padding:11px 13px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font:400 .87rem/1.5 var(--font);outline:none}.edit-item textarea:focus{border-color:var(--a3)}
 
 @media(max-width:600px){
   .app{padding:10px 10px 36px}header{padding:24px 0 12px}.card{padding:18px 14px}
@@ -162,7 +162,7 @@ select option{background:#1a1a2e;color:#fff}
   <section class="mode-menu" id="modeMenu">
     <button class="mode-card" type="button" data-mode="convert"><span class="mode-icon">📄</span><strong>Converter Saja</strong><span>Ubah PDF menjadi ePub tanpa terjemahan.</span></button>
     <button class="mode-card" type="button" data-mode="translate"><span class="mode-icon">🌐</span><strong>Converter + Terjemahan</strong><span>Terjemahkan lalu buat ePub dengan checkpoint.</span></button>
-    <button class="mode-card" type="button" data-mode="edit"><span class="mode-icon">✏️</span><strong>Pengeditan</strong><span>Ruang pengeditan PDF sedang disiapkan.</span></button>
+    <button class="mode-card" type="button" data-mode="edit"><span class="mode-icon">✏️</span><strong>Pengeditan</strong><span>Edit teks PDF sebelum disimpan menjadi ePub.</span></button>
   </section>
 
   <!-- STEPPER -->
@@ -225,6 +225,19 @@ select option{background:#1a1a2e;color:#fff}
       <div class="brow">
         <button class="btn btn-s" id="bBack2">← Back</button>
         <button class="btn btn-p" id="bStart">🚀 Start Conversion</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDITING -->
+  <div class="sec" id="sEdit">
+    <div class="card">
+      <div class="card-t">✏️ Edit Teks PDF</div>
+      <p style="color:var(--text2);font-size:.82rem;margin-bottom:16px">Periksa atau ubah paragraf, lalu simpan sebagai ePub.</p>
+      <div class="edit-list" id="editList"></div>
+      <div class="brow">
+        <button class="btn btn-s" id="bBackEdit" type="button">← Kembali</button>
+        <button class="btn btn-ok" id="bSaveEdit" type="button">💾 Simpan ePub</button>
       </div>
     </div>
   </div>
@@ -320,13 +333,13 @@ loadLangs();
 document.querySelectorAll('.mode-card').forEach(card=>{
   card.onclick=()=>{
     const mode=card.dataset.mode;
-    if(mode==='edit')return toast('Fitur pengeditan belum tersedia. Pilih salah satu converter.','wrn');
     S.mode=mode;
     $('modeMenu').style.display='none';
     $('stepper').style.display='flex';
     $('translationFields').classList.toggle('hidden',mode==='convert');
     $('configTitle').textContent=mode==='convert'?'📄 Converter Settings':'🌐 Translation Settings';
     $('bStart').textContent=mode==='convert'?'🚀 Start Conversion':'🚀 Start Translation';
+    document.querySelector('.st[data-s="3"] .st-l').textContent=mode==='edit'?'Edit':'Translate';
     goStep(1);
   };
 });
@@ -372,6 +385,8 @@ $('bNext1').onclick=()=>goStep(2);
 $('prov').onchange=()=>$('apiG').classList.toggle('show',$('prov').value!=='google_free');
 $('bBack2').onclick=()=>goStep(1);
 $('bStart').onclick=startProcess;
+$('bBackEdit').onclick=()=>goStep(2);
+$('bSaveEdit').onclick=saveEditedEpub;
 $('bContinue').onclick=()=>resumeJob('continue');
 $('bRetryErrors').onclick=()=>resumeJob('retry-errors');
 $('bRetryDone').onclick=()=>resumeJob('retry-errors');
@@ -507,6 +522,13 @@ function handleProgress(d){
       if(d.current&&d.current%50===0)log(`📝 ${d.current}/${d.total} translated`);
       break;
 
+    case 'editing':
+      renderEditor(d.paragraphs||[]);
+      if(S.es)S.es.close();
+      showEditStep();
+      log('✏️ Teks siap diedit.','ok');
+      break;
+
     case 'building':
       log('📦 '+d.message);
       $('pLbl').textContent=d.message;
@@ -531,6 +553,39 @@ function handleProgress(d){
       toast('Error: '+d.message,'err');
       break;
   }
+}
+
+function showEditStep(){
+  document.querySelectorAll('.sec').forEach(el=>el.classList.remove('vis'));
+  $('sEdit').classList.add('vis');
+  document.querySelectorAll('.st').forEach(el=>{
+    const s=+el.dataset.s;el.classList.toggle('on',s===3);el.classList.toggle('ok',s<3);
+  });
+  ['ln12','ln23','ln34'].forEach((id,i)=>$(id).classList.toggle('fill',i<2));
+}
+
+function renderEditor(paragraphs){
+  $('editList').innerHTML='';
+  paragraphs.forEach((text,index)=>{
+    const row=document.createElement('div');row.className='edit-item';
+    const label=document.createElement('label');label.textContent=index+1;
+    const textarea=document.createElement('textarea');textarea.value=text;textarea.dataset.index=index;
+    row.append(label,textarea);$('editList').appendChild(row);
+  });
+}
+
+async function saveEditedEpub(){
+  const paragraphs=[...$('editList').querySelectorAll('textarea')].map(input=>input.value);
+  if(!paragraphs.some(text=>text.trim()))return toast('Teks tidak boleh kosong.','err');
+  $('bSaveEdit').disabled=true;$('bSaveEdit').innerHTML='<span class="spin"></span> Menyimpan…';
+  try{
+    const r=await fetch('/api/edit/'+S.jobId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paragraphs})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||'Gagal menyimpan');
+    S.dlUrl=d.downloadUrl;$('pPct').textContent='100%';$('pBar').style.width='100%';
+    $('rSub').textContent=($('inTitle').value||'Book')+'.epub — '+d.sizeMB+' MB';
+    sessionStorage.removeItem('activeJobId');toast('ePub berhasil disimpan!','ok');goStep(4);
+  }catch(e){toast(e.message,'err');}
+  finally{$('bSaveEdit').disabled=false;$('bSaveEdit').innerHTML='💾 Simpan ePub';}
 }
 
 function fmtTime(s){

@@ -93,8 +93,8 @@ app.post('/api/upload', upload.single('pdf'), (req, res) => {
     filePath:    req.file.path,
     sourceLang:  req.body.sourceLang  || 'auto',
     targetLang:  req.body.targetLang  || 'id',
-    provider:    req.body.mode === 'convert' ? 'none' : (req.body.provider || 'google_free'),
-    mode:        req.body.mode === 'convert' ? 'convert' : 'translate',
+    provider:    req.body.mode === 'convert' || req.body.mode === 'edit' ? 'none' : (req.body.provider || 'google_free'),
+    mode:        ['convert', 'translate', 'edit'].includes(req.body.mode) ? req.body.mode : 'translate',
     apiKey:      req.body.apiKey      || '',
     title:       req.body.title       || 'Translated Book',
     author:      req.body.author      || 'Unknown',
@@ -216,51 +216,68 @@ app.get('/api/process/:jobId', async (req, res) => {
       return;
     }
 
+    if (job.mode === 'edit') {
+      job.status = 'editing';
+      job.progress = { phase: 'editing', current: paragraphs.length, total: paragraphs.length, errors: 0 };
+      persistJob(req.params.jobId, job);
+      send({ phase: 'editing', paragraphs, message: 'Teks siap diedit.' });
+      res.end();
+      return;
+    }
+
     // ── Phase 2: Translate ──────────────────────────────
-    send({
-      phase: 'translating',
-      current: 0,
-      total: paragraphs.length,
-      message: 'Memulai terjemahan…'
-    });
+    let translated;
+    if (job.mode === 'convert') {
+      translated = [...paragraphs];
+      translated.layout = paragraphs.layout || [];
+      job.progress = { phase: 'building', current: paragraphs.length, total: paragraphs.length, errors: 0 };
+      send({ phase: 'building', message: 'Merakit file ePub dari PDF…' });
+    } else {
+      send({
+        phase: 'translating',
+        current: 0,
+        total: paragraphs.length,
+        message: 'Memulai terjemahan…'
+      });
 
-    const existingResult = job.translated || null;
-    const resumeFrom = mode === 'retry-errors'
-      ? Math.min(...(job.failedIndices.length ? job.failedIndices : [paragraphs.length]))
-      : 0;
+      const existingResult = job.translated || null;
+      const resumeFrom = mode === 'retry-errors'
+        ? Math.min(...(job.failedIndices.length ? job.failedIndices : [paragraphs.length]))
+        : 0;
 
-    const translated = await translateParagraphs(
-      paragraphs,
-      {
-        sourceLang: job.sourceLang,
-        targetLang: job.targetLang,
-        provider:   job.provider,
-        apiKey:     job.apiKey,
-        mode,
-        existingStatuses: job.statuses,
-        onCheckpoint: async (result, statuses, current, errors) => {
-          job.translated = [...result];
-          job.statuses = [...statuses];
-          job.failedIndices = statuses.map((status, index) => status === 'failed' ? index : -1).filter(index => index >= 0);
-          job.progress = { phase: 'translating', current, total: paragraphs.length, errors };
-          job.errors = job.failedIndices.map(index => ({ index, message: 'Translation failed' }));
-          persistJob(req.params.jobId, job);
-        }
-      },
-      (current, total, errorCount) => {
-        job.progress = { phase: 'translating', current, total, errors: errorCount };
-        send({
-          phase: 'translating',
-          current,
-          total,
-          errors: errorCount,
-          message: `Menerjemahkan paragraf ${current}/${total}`
-        });
-      },
-      resumeFrom,
-      existingResult
-    );
-    translated.layout = paragraphs.layout || [];
+      translated = await translateParagraphs(
+        paragraphs,
+        {
+          sourceLang: job.sourceLang,
+          targetLang: job.targetLang,
+          provider:   job.provider,
+          apiKey:     job.apiKey,
+          mode,
+          existingStatuses: job.statuses,
+          onCheckpoint: async (result, statuses, current, errors) => {
+            job.translated = [...result];
+            job.statuses = [...statuses];
+            job.failedIndices = statuses.map((status, index) => status === 'failed' ? index : -1).filter(index => index >= 0);
+            job.progress = { phase: 'translating', current, total: paragraphs.length, errors };
+            job.errors = job.failedIndices.map(index => ({ index, message: 'Translation failed' }));
+            persistJob(req.params.jobId, job);
+          }
+        },
+        (current, total, errorCount) => {
+          job.progress = { phase: 'translating', current, total, errors: errorCount };
+          send({
+            phase: 'translating',
+            current,
+            total,
+            errors: errorCount,
+            message: `Menerjemahkan paragraf ${current}/${total}`
+          });
+        },
+        resumeFrom,
+        existingResult
+      );
+      translated.layout = paragraphs.layout || [];
+    }
     job.layout = translated.layout;
     persistJob(req.params.jobId, job);
       job.progress = { phase: 'building', current: paragraphs.length, total: paragraphs.length, errors: job.failedIndices.length };
@@ -302,6 +319,40 @@ app.get('/api/process/:jobId', async (req, res) => {
   }
 
   res.end();
+});
+
+/**
+ * POST /api/edit/:jobId
+ * Build an ePub from paragraphs edited in the browser.
+ */
+app.post('/api/edit/:jobId', async (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job || job.mode !== 'edit') return res.status(404).json({ error: 'Editing job not found' });
+  if (!Array.isArray(req.body.paragraphs) || !req.body.paragraphs.length) {
+    return res.status(400).json({ error: 'No edited paragraphs supplied' });
+  }
+
+  try {
+    const paragraphs = req.body.paragraphs.map(text => String(text || '').trim()).filter(Boolean);
+    if (!paragraphs.length) return res.status(400).json({ error: 'Edited text cannot be empty' });
+    const epubPath = await buildEpub(paragraphs, {
+      title: job.title,
+      author: job.author,
+      language: job.sourceLang === 'auto' ? 'en' : job.sourceLang,
+      coverBase64: job.coverBase64,
+      layout: job.layout || []
+    }, req.params.jobId);
+    job.epubPath = epubPath;
+    job.status = 'done';
+    job.progress = { phase: 'done', current: paragraphs.length, total: paragraphs.length, errors: 0 };
+    persistJob(req.params.jobId, job);
+    const sizeMB = (fs.statSync(epubPath).size / 1024 / 1024).toFixed(2);
+    res.json({ downloadUrl: `/api/download/${req.params.jobId}`, sizeMB });
+  } catch (err) {
+    job.status = 'error';
+    persistJob(req.params.jobId, job);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /**
