@@ -117,7 +117,8 @@ app.post('/api/upload', upload.single('pdf'), (req, res) => {
 app.get('/api/status/:jobId', (req, res) => {
   const job = jobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json({ status: job.status, progress: job.progress, errors: job.errors,
+  res.json({ status: job.status, mode: job.mode, title: job.title, author: job.author,
+    statusMessage: job.progress?.message || '', progress: job.progress, errors: job.errors,
     failedIndices: job.failedIndices || [],
     currentIndex: job.progress.current, totalParagraphs: job.progress.total,
     partial: (job.failedIndices || []).length > 0,
@@ -142,6 +143,9 @@ app.get('/api/events/:jobId', (req, res) => {
       total: job.progress.total,
       errors: job.progress.errors,
       message: job.progress.message,
+      mode: job.mode,
+      status: job.status,
+      failedIndices: job.failedIndices || [],
       downloadUrl: job.epubPath ? `/api/download/${req.params.jobId}` : null
     });
     if (state !== last) {
@@ -211,6 +215,9 @@ app.get('/api/process/:jobId', async (req, res) => {
     persistJob(req.params.jobId, job);
 
     if (paragraphs.length === 0) {
+      job.status = 'error';
+      job.progress = { phase: 'error', current: 0, total: 0, errors: 1, message: 'Tidak ada teks yang ditemukan di PDF.' };
+      persistJob(req.params.jobId, job);
       send({ phase: 'error', message: 'Tidak ada teks yang ditemukan di PDF.' });
       res.end();
       return;

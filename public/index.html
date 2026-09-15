@@ -265,8 +265,8 @@ select option{background:#1a1a2e;color:#fff}
       </div>
       <div class="logbox" id="log"></div>
       <div class="brow">
-        <button class="btn btn-p" id="bContinue" type="button">▶ Lanjutkan yang belum selesai</button>
-        <button class="btn btn-warn" id="bRetryErrors" type="button">↻ Ulangi yang error</button>
+        <button class="btn btn-p" id="bContinue" type="button">▶ Lanjutkan proses</button>
+        <button class="btn btn-warn" id="bRetryErrors" type="button">↻ Perbaiki dan ulangi</button>
       </div>
     </div>
   </div>
@@ -297,7 +297,7 @@ select option{background:#1a1a2e;color:#fff}
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-const S = { file:null, pdfDoc:null, coverB64:'', jobId:'', dlUrl:'', es:null, t0:0, reconnects:0, mode:'translate' };
+const S = { file:null, pdfDoc:null, coverB64:'', jobId:'', dlUrl:'', es:null, t0:0, reconnects:0, mode:'', terminal:false };
 const $ = id => document.getElementById(id);
 
 /* ── Toast ──────────────────────────────────────────── */
@@ -330,16 +330,22 @@ async function loadLangs(){
 }
 loadLangs();
 
+function applyModeUI(){
+  const isConvert=S.mode==='convert';
+  $('translationFields').classList.toggle('hidden',isConvert||S.mode==='edit');
+  $('configTitle').textContent=isConvert?'📄 Converter Settings':'🌐 Translation Settings';
+  $('bStart').textContent=isConvert?'🚀 Start Conversion':S.mode==='edit'?'✏️ Start Editing':'🚀 Start Translation';
+  document.querySelector('.st[data-s="3"] .st-l').textContent=S.mode==='edit'?'Edit':isConvert?'Convert':'Translate';
+  $('bContinue').textContent=isConvert?'▶ Lanjutkan conversion':'▶ Lanjutkan proses';
+}
+
 document.querySelectorAll('.mode-card').forEach(card=>{
   card.onclick=()=>{
     const mode=card.dataset.mode;
     S.mode=mode;
     $('modeMenu').style.display='none';
     $('stepper').style.display='flex';
-    $('translationFields').classList.toggle('hidden',mode==='convert');
-    $('configTitle').textContent=mode==='convert'?'📄 Converter Settings':'🌐 Translation Settings';
-    $('bStart').textContent=mode==='convert'?'🚀 Start Conversion':'🚀 Start Translation';
-    document.querySelector('.st[data-s="3"] .st-l').textContent=mode==='edit'?'Edit':'Translate';
+    applyModeUI();
     goStep(1);
   };
 });
@@ -450,6 +456,7 @@ function connectSSE(jobId, start=false, mode='continue'){
 
   const es=new EventSource((start?'/api/process/'+jobId+'?mode='+encodeURIComponent(mode):'/api/events/'+jobId));
   S.es=es;
+  S.terminal=false;
 
   es.onopen=()=>{
     $('reconBanner').classList.remove('show');
@@ -466,6 +473,7 @@ function connectSSE(jobId, start=false, mode='continue'){
 
   es.onerror=()=>{
     es.close();
+    if(S.terminal)return;
     S.reconnects++;
 
     // Show reconnecting banner
@@ -475,17 +483,37 @@ function connectSSE(jobId, start=false, mode='continue'){
 
     // Auto-reconnect with backoff (max 10s)
     const delay=Math.min(S.reconnects*2000,10000);
-    setTimeout(()=>connectSSE(jobId),delay);
+    setTimeout(async()=>{
+      if(S.terminal)return;
+      try{
+        const r=await fetch('/api/status/'+jobId);const state=await r.json();
+        if(state.status==='processing')connectSSE(jobId);
+        else showProcessError(state.statusMessage||'Proses berhenti. Pilih tindakan untuk melanjutkan.');
+      }catch(_){ showProcessError('Jaringan terputus. Coba lanjutkan kembali.'); }
+    },delay);
   };
 }
 
-function resumeJob(mode){
+async function resumeJob(mode){
   if(!S.jobId)return toast('Tidak ada pekerjaan untuk dilanjutkan.','err');
   if(S.es)try{S.es.close();}catch(_){ }
   goStep(3);
   log(mode==='retry-errors'?'↻ Mengulang paragraf yang error…':'▶ Melanjutkan paragraf yang belum selesai…','wrn');
   S.reconnects=0;
-  connectSSE(S.jobId,true,mode);
+  try{
+    const r=await fetch('/api/status/'+S.jobId);const state=await r.json();
+    if(state.status==='processing')connectSSE(S.jobId);
+    else connectSSE(S.jobId,true,mode);
+  }catch(e){showProcessError('Tidak dapat memeriksa status proses: '+e.message);}
+}
+
+function showProcessError(message){
+  S.terminal=true;
+  $('reconBanner').classList.remove('show');
+  $('pLbl').textContent='Proses berhenti';
+  $('bContinue').disabled=false;$('bRetryErrors').disabled=false;
+  log('❌ '+message,'err');
+  toast('Proses berhenti. Gunakan tombol di bawah untuk melanjutkan.','wrn');
 }
 
 function handleProgress(d){
@@ -501,6 +529,14 @@ function handleProgress(d){
     case 'parsed':
       $('sTotal').textContent=d.total;
       log('✔ '+d.message,'ok');
+      break;
+
+    case 'editing':
+      S.terminal=true;
+      renderEditor(d.paragraphs||[]);
+      if(S.es)S.es.close();
+      showEditStep();
+      log('✏️ Teks siap diedit.','ok');
       break;
 
     case 'translating':
@@ -522,13 +558,6 @@ function handleProgress(d){
       if(d.current&&d.current%50===0)log(`📝 ${d.current}/${d.total} translated`);
       break;
 
-    case 'editing':
-      renderEditor(d.paragraphs||[]);
-      if(S.es)S.es.close();
-      showEditStep();
-      log('✏️ Teks siap diedit.','ok');
-      break;
-
     case 'building':
       log('📦 '+d.message);
       $('pLbl').textContent=d.message;
@@ -536,6 +565,7 @@ function handleProgress(d){
       break;
 
     case 'done':
+      S.terminal=true;
       if(S.es)S.es.close();
       S.dlUrl=d.downloadUrl;
       $('pPct').textContent='100%';$('pBar').style.width='100%';
@@ -543,14 +573,16 @@ function handleProgress(d){
       toast('ePub ready!','ok');
       $('rSub').textContent=($('inTitle').value||'Book')+'.epub — '+(d.sizeMB||'?')+' MB';
       $('bRetryDone').hidden=!(d.partial||d.errors?.length);
-      sessionStorage.removeItem('activeJobId');
+      if(!(d.partial||d.errors?.length))sessionStorage.removeItem('activeJobId');
       goStep(4);
       break;
 
     case 'error':
+      S.terminal=true;
       if(S.es)S.es.close();
       log('❌ '+d.message,'err');
       toast('Error: '+d.message,'err');
+      showProcessError(d.message||'Proses gagal.');
       break;
   }
 }
@@ -615,6 +647,7 @@ $('bDl').onclick=()=>{
 $('bReset').onclick=()=>{
   if(S.es)try{S.es.close();}catch(_){}
   S.file=null;S.pdfDoc=null;S.coverB64='';S.jobId='';S.dlUrl='';S.es=null;
+  S.mode='';S.terminal=false;
   $('piw').style.display='none';$('pth').innerHTML='';$('fi').value='';
   $('pPct').textContent='0%';$('pBar').style.width='0%';
   $('sDone').textContent='0';$('sTotal').textContent='0';
@@ -642,6 +675,8 @@ $('bReset').onclick=()=>{
       if(d.error)return sessionStorage.removeItem('activeJobId');
 
       S.jobId=savedJob;
+      S.mode=d.mode||'translate';
+      applyModeUI();
       S.t0=Date.now()-(d.currentIndex||0)*350; // estimate start time
 
       // Restore UI to step 3
@@ -651,13 +686,23 @@ $('bReset').onclick=()=>{
 
       if(d.status==='done'){
         S.dlUrl=d.downloadUrl;
-        $('rSub').textContent='ePub ready — '+d.sizeMB+' MB';
+        $('bRetryDone').hidden=!d.partial;
+        $('rSub').textContent='ePub ready';
         goStep(4);
         toast('ePub sudah siap! Download sekarang.','ok');
         return;
       }
 
-      // Connect SSE
+      if(d.status==='error'){
+        goStep(3);
+        showProcessError(d.statusMessage||'Proses gagal.');
+        return;
+      }
+      if(d.status==='editing'){
+        goStep(3);
+        connectSSE(savedJob);
+        return;
+      }
       connectSSE(savedJob,d.status!=='processing');
     })
     .catch(()=>sessionStorage.removeItem('activeJobId'));
