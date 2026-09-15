@@ -12,6 +12,7 @@ Konverter PDF ke ePub dengan Neural Machine Translation (NMT).
 - 🔄 **Retry & Backoff** — Error handling otomatis dengan rate-limit guard
 - 🎨 **Layout-aware EPUB** — page break, ukuran font, indentasi, alignment, dan cover halaman pertama dipertahankan semaksimal mungkin
 - 📱 **Cross-platform Web App** — dapat dibuka dari Android, Windows, macOS, dan Linux melalui browser
+- 🧭 **3 Mode Utama** — Converter Saja, Converter + Terjemahan, dan Pengeditan (segera hadir)
 
 ## Quick Start (Lokal)
 

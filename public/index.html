@@ -134,12 +134,17 @@ select option{background:#1a1a2e;color:#fff}
 .toast.ok{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.3);color:#86efac}
 .toast.err{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.3);color:#fca5a5}
 .toast.wrn{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.3);color:#fde68a}
+.mode-menu{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:20px 0 28px}
+.mode-card{text-align:left;min-height:150px;color:var(--text);background:var(--bg-glass);border:1px solid var(--border);border-radius:var(--r);padding:22px;cursor:pointer;transition:.25s}
+.mode-card:hover{border-color:var(--a3);transform:translateY(-3px);box-shadow:0 8px 26px rgba(6,182,212,.16)}
+.mode-card strong{display:block;font-size:1rem;margin:10px 0 5px}.mode-card span{display:block;color:var(--text2);font-size:.78rem}.mode-icon{font-size:1.8rem}
+.translation-only.hidden{display:none}
 
 @media(max-width:600px){
   .app{padding:10px 10px 36px}header{padding:24px 0 12px}.card{padding:18px 14px}
   .st-c{width:30px;height:30px;font-size:.7rem}.st-l{font-size:.55rem}
   .pinfo{flex-direction:column;align-items:center}.pthumb{width:90px}
-  .btn{padding:10px 18px;font-size:.8rem}.fgrid{grid-template-columns:1fr}
+  .btn{padding:10px 18px;font-size:.8rem}.fgrid{grid-template-columns:1fr}.mode-menu{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -151,11 +156,17 @@ select option{background:#1a1a2e;color:#fff}
 <div class="app">
   <header>
     <h1>📖 PDF → ePub Translator</h1>
-    <p>Neural Machine Translation · Auto-Resume · Checkpoint System</p>
+    <p>PDF converter · translation · auto-resume</p>
   </header>
 
+  <section class="mode-menu" id="modeMenu">
+    <button class="mode-card" type="button" data-mode="convert"><span class="mode-icon">📄</span><strong>Converter Saja</strong><span>Ubah PDF menjadi ePub tanpa terjemahan.</span></button>
+    <button class="mode-card" type="button" data-mode="translate"><span class="mode-icon">🌐</span><strong>Converter + Terjemahan</strong><span>Terjemahkan lalu buat ePub dengan checkpoint.</span></button>
+    <button class="mode-card" type="button" data-mode="edit"><span class="mode-icon">✏️</span><strong>Pengeditan</strong><span>Ruang pengeditan PDF sedang disiapkan.</span></button>
+  </section>
+
   <!-- STEPPER -->
-  <div class="stepper">
+  <div class="stepper" id="stepper" style="display:none">
     <div class="st on" data-s="1"><div class="st-c">1</div><div class="st-l">Upload</div></div>
     <div class="st-line" id="ln12"></div>
     <div class="st" data-s="2"><div class="st-c">2</div><div class="st-l">Configure</div></div>
@@ -190,7 +201,8 @@ select option{background:#1a1a2e;color:#fff}
   <!-- STEP 2: Config -->
   <div class="sec" id="s2">
     <div class="card">
-      <div class="card-t">🌐 Translation Settings</div>
+      <div class="card-t" id="configTitle">🌐 Translation Settings</div>
+      <div class="translation-only" id="translationFields">
       <div class="fgrid">
         <div class="fg"><label class="fl">Source Language</label><select id="srcL"></select></div>
         <div class="fg"><label class="fl">Target Language</label><select id="tgtL"></select></div>
@@ -205,13 +217,14 @@ select option{background:#1a1a2e;color:#fff}
       <div class="api-g" id="apiG">
         <div class="fg"><label class="fl">API Key</label><input type="password" id="apiK" placeholder="Paste your API key"></div>
       </div>
+      </div>
       <div class="fgrid">
         <div class="fg"><label class="fl">ePub Title</label><input type="text" id="inTitle" placeholder="My Book"></div>
         <div class="fg"><label class="fl">Author</label><input type="text" id="inAuthor" value="Unknown" placeholder="Author name"></div>
       </div>
       <div class="brow">
         <button class="btn btn-s" id="bBack2">← Back</button>
-        <button class="btn btn-p" id="bStart">🚀 Start Translation</button>
+        <button class="btn btn-p" id="bStart">🚀 Start Conversion</button>
       </div>
     </div>
   </div>
@@ -271,7 +284,7 @@ select option{background:#1a1a2e;color:#fff}
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-const S = { file:null, pdfDoc:null, coverB64:'', jobId:'', dlUrl:'', es:null, t0:0, reconnects:0 };
+const S = { file:null, pdfDoc:null, coverB64:'', jobId:'', dlUrl:'', es:null, t0:0, reconnects:0, mode:'translate' };
 const $ = id => document.getElementById(id);
 
 /* ── Toast ──────────────────────────────────────────── */
@@ -303,6 +316,20 @@ async function loadLangs(){
   }catch(e){}
 }
 loadLangs();
+
+document.querySelectorAll('.mode-card').forEach(card=>{
+  card.onclick=()=>{
+    const mode=card.dataset.mode;
+    if(mode==='edit')return toast('Fitur pengeditan belum tersedia. Pilih salah satu converter.','wrn');
+    S.mode=mode;
+    $('modeMenu').style.display='none';
+    $('stepper').style.display='flex';
+    $('translationFields').classList.toggle('hidden',mode==='convert');
+    $('configTitle').textContent=mode==='convert'?'📄 Converter Settings':'🌐 Translation Settings';
+    $('bStart').textContent=mode==='convert'?'🚀 Start Conversion':'🚀 Start Translation';
+    goStep(1);
+  };
+});
 
 /* ── STEP 1: Upload ─────────────────────────────────── */
 const dz=$('dz');
@@ -358,8 +385,8 @@ $('bRetryDone').onclick=()=>resumeJob('retry-errors');
 async function startProcess(){
   if(!S.file)return toast('No PDF loaded.','err');
   const tgtL=$('tgtL').value;
-  if(tgtL==='auto')return toast('Select a target language.','err');
-  if($('prov').value!=='google_free'&&!$('apiK').value)return toast('API key required.','err');
+  if(S.mode==='translate'&&tgtL==='auto')return toast('Select a target language.','err');
+  if(S.mode==='translate'&&$('prov').value!=='google_free'&&!$('apiK').value)return toast('API key required.','err');
 
   goStep(3);logClear();
   log('📤 Uploading PDF to server…');
@@ -374,6 +401,7 @@ async function startProcess(){
   fd.append('title',$('inTitle').value||'Book');
   fd.append('author',$('inAuthor').value||'Unknown');
   fd.append('coverBase64',S.coverB64);
+  fd.append('mode',S.mode);
 
   let res;
   try{
@@ -538,7 +566,10 @@ $('bReset').onclick=()=>{
   $('sErr').textContent='0';$('sEta').textContent='--';
   $('reconBanner').classList.remove('show');
   sessionStorage.removeItem('activeJobId');
-  logClear();goStep(1);
+  logClear();
+  $('modeMenu').style.display='grid';
+  $('stepper').style.display='none';
+  goStep(1);
 };
 
 /* ══════════════════════════════════════════════════════
