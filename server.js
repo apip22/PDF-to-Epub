@@ -1,4 +1,4 @@
-/**
+ /**
  * ============================================================
  *  PDF → ePub Translator  ·  Express.js Server
  *  Server-Side NMT Pipeline + SSE Progress Streaming
@@ -152,7 +152,7 @@ app.get('/api/events/:jobId', (req, res) => {
       res.write(`data: ${state}\n\n`);
       last = state;
     }
-    if (job.status === 'done' || job.status === 'error') {
+    if (['done', 'error', 'cancelled'].includes(job.status)) {
       clearInterval(timer);
       res.end();
     }
@@ -196,10 +196,17 @@ app.get('/api/process/:jobId', async (req, res) => {
     send({ phase: 'parsing', message: 'Memulai parsing PDF…' });
 
     const paragraphs = job.paragraphs || await parsePDF(job.filePath, (current, total) => {
+      if (job.cancelled) return;
       job.progress = { phase: 'parsing', current, total, errors: 0 };
       persistJob(req.params.jobId, job);
       send({ phase: 'parsing', current, total, message: `Parsing halaman ${current}/${total}` });
     });
+
+    if (job.cancelled) {
+      send({ phase: 'cancelled', message: 'Proses dibatalkan.' });
+      res.end();
+      return;
+    }
 
     send({
       phase: 'parsed',
@@ -261,6 +268,7 @@ app.get('/api/process/:jobId', async (req, res) => {
           apiKey:     job.apiKey,
           mode,
           existingStatuses: job.statuses,
+          isCancelled: () => job.cancelled,
           onCheckpoint: async (result, statuses, current, errors) => {
             job.translated = [...result];
             job.statuses = [...statuses];
@@ -284,6 +292,11 @@ app.get('/api/process/:jobId', async (req, res) => {
         existingResult
       );
       translated.layout = paragraphs.layout || [];
+    }
+    if (job.cancelled) {
+      send({ phase: 'cancelled', message: 'Proses dibatalkan.' });
+      res.end();
+      return;
     }
     job.layout = translated.layout;
     persistJob(req.params.jobId, job);
@@ -326,6 +339,28 @@ app.get('/api/process/:jobId', async (req, res) => {
   }
 
   res.end();
+});
+
+/**
+ * POST /api/cancel/:jobId
+ * Stop a running job at the next safe checkpoint.
+ */
+app.post('/api/cancel/:jobId', (req, res) => {
+  const job = jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status !== 'processing') {
+    return res.status(409).json({ error: 'Job is not currently processing', status: job.status });
+  }
+
+  job.cancelled = true;
+  job.status = 'cancelled';
+  job.progress = {
+    ...job.progress,
+    phase: 'cancelled',
+    message: 'Proses dibatalkan oleh pengguna.'
+  };
+  persistJob(req.params.jobId, job);
+  res.json({ status: job.status, message: job.progress.message });
 });
 
 /**

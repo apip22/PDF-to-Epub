@@ -267,6 +267,7 @@ select option{background:#1a1a2e;color:#fff}
       <div class="brow">
         <button class="btn btn-p" id="bContinue" type="button">▶ Lanjutkan proses</button>
         <button class="btn btn-warn" id="bRetryErrors" type="button">↻ Perbaiki dan ulangi</button>
+        <button class="btn btn-s" id="bCancel" type="button">■ Batalkan proses</button>
       </div>
     </div>
   </div>
@@ -396,6 +397,7 @@ $('bSaveEdit').onclick=saveEditedEpub;
 $('bContinue').onclick=()=>resumeJob('continue');
 $('bRetryErrors').onclick=()=>resumeJob('retry-errors');
 $('bRetryDone').onclick=()=>resumeJob('retry-errors');
+$('bCancel').onclick=cancelProcess;
 
 /* ══════════════════════════════════════════════════════
  *  STEP 3: Upload → Start background job → Connect SSE
@@ -437,6 +439,7 @@ async function startProcess(){
   S.jobId=res.jobId;
   S.t0=Date.now();
   S.reconnects=0;
+  $('bCancel').hidden=false;
 
   // Save jobId to sessionStorage for page refresh recovery
   sessionStorage.setItem('activeJobId',S.jobId);
@@ -510,6 +513,8 @@ async function resumeJob(mode){
 function showProcessError(message){
   S.terminal=true;
   $('reconBanner').classList.remove('show');
+  $('bCancel').hidden=true;
+  $('bCancel').disabled=false;
   $('pLbl').textContent='Proses berhenti';
   $('bContinue').disabled=false;$('bRetryErrors').disabled=false;
   log('❌ '+message,'err');
@@ -566,6 +571,7 @@ function handleProgress(d){
 
     case 'done':
       S.terminal=true;
+      $('bCancel').hidden=true;
       if(S.es)S.es.close();
       S.dlUrl=d.downloadUrl;
       $('pPct').textContent='100%';$('pBar').style.width='100%';
@@ -579,11 +585,36 @@ function handleProgress(d){
 
     case 'error':
       S.terminal=true;
+      $('bCancel').hidden=true;
       if(S.es)S.es.close();
       log('❌ '+d.message,'err');
       toast('Error: '+d.message,'err');
       showProcessError(d.message||'Proses gagal.');
       break;
+
+    case 'cancelled':
+      S.terminal=true;
+      if(S.es)S.es.close();
+      $('bCancel').hidden=true;
+      log('⏹ '+(d.message||'Proses dibatalkan.'),'wrn');
+      showProcessError(d.message||'Proses dibatalkan. Pilih lanjutkan untuk meneruskan.');
+      break;
+  }
+}
+
+async function cancelProcess(){
+  if(!S.jobId)return;
+  $('bCancel').disabled=true;
+  try{
+    const r=await fetch('/api/cancel/'+S.jobId,{method:'POST'});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Gagal membatalkan proses');
+    S.terminal=true;
+    if(S.es)S.es.close();
+    showProcessError(d.message||'Proses dibatalkan.');
+  }catch(e){
+    $('bCancel').disabled=false;
+    toast(e.message,'err');
   }
 }
 
@@ -653,6 +684,7 @@ $('bReset').onclick=()=>{
   $('sDone').textContent='0';$('sTotal').textContent='0';
   $('sErr').textContent='0';$('sEta').textContent='--';
   $('reconBanner').classList.remove('show');
+  $('bCancel').hidden=true;$('bCancel').disabled=false;
   sessionStorage.removeItem('activeJobId');
   logClear();
   $('modeMenu').style.display='grid';
@@ -696,6 +728,11 @@ $('bReset').onclick=()=>{
       if(d.status==='error'){
         goStep(3);
         showProcessError(d.statusMessage||'Proses gagal.');
+        return;
+      }
+      if(d.status==='cancelled'){
+        goStep(3);
+        showProcessError(d.statusMessage||'Proses dibatalkan. Pilih lanjutkan untuk meneruskan.');
         return;
       }
       if(d.status==='editing'){
